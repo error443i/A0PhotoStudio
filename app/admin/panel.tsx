@@ -4,6 +4,7 @@ import Link from "next/link";
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
+import { detectImageMimeType, MAX_IMAGE_SIZE_BYTES } from "@/lib/image-validation";
 import type { TelegramPackage } from "@/lib/telegram-packages";
 
 type Photo = {
@@ -57,6 +58,47 @@ function isMissingSchemaTable(error: unknown) {
     error.message.includes("schema cache") ||
     error.message.includes("Could not find the table")
   );
+}
+
+async function uploadAdminImage(
+  client: SupabaseClient,
+  file: File,
+  purpose: "story-photo" | "hero-background",
+  storyId?: string,
+) {
+  const { data, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw new Error("Unable to verify your admin session. Sign in again.");
+  if (!data.session) throw new Error("Your admin session has expired. Sign in again.");
+
+  const formData = new FormData();
+  formData.set("purpose", purpose);
+  if (storyId) formData.set("storyId", storyId);
+  formData.set("file", file);
+
+  const response = await fetch("/api/admin/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${data.session.access_token}` },
+    body: formData,
+  });
+  const result: unknown = await response.json();
+  if (
+    !response.ok ||
+    typeof result !== "object" ||
+    result === null ||
+    !("imageUrl" in result) ||
+    typeof result.imageUrl !== "string"
+  ) {
+    const message =
+      typeof result === "object" &&
+      result !== null &&
+      "error" in result &&
+      typeof result.error === "string"
+        ? result.error
+        : "Unable to upload the image.";
+    throw new Error(message);
+  }
+
+  return result.imageUrl;
 }
 
 export default function AdminPanel({ section = "collections" }: { section?: AdminSection }) {
@@ -362,7 +404,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     }
     try {
       const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-      if (loginError) setError(`Unable to sign in: ${loginError.message}`);
+      if (loginError) setError("Unable to sign in. Check your credentials or contact the administrator.");
       else setPassword("");
     } catch (loginError) {
       setError(`Unable to sign in: ${errorMessage(loginError)}`);
@@ -595,13 +637,16 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       return;
     }
 
-    const invalidFile = files.find(
-      (file) =>
-        !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(file.type) ||
-        file.size > 12 * 1024 * 1024,
-    );
+    const invalidFile = await Promise.all(
+      files.map(async (file) => ({
+        file,
+        isValid:
+          file.size <= MAX_IMAGE_SIZE_BYTES &&
+          detectImageMimeType(new Uint8Array(await file.slice(0, 12).arrayBuffer())) !== null,
+      })),
+    ).then((checked) => checked.find(({ isValid }) => !isValid)?.file);
     if (invalidFile) {
-      setError(`${invalidFile.name} must be a JPEG, PNG, WebP, or AVIF image no larger than 12 MB.`);
+      setError(`${invalidFile.name} must be a JPEG, PNG, or WebP image no larger than 4 MB.`);
       return;
     }
 
@@ -619,61 +664,31 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     setError("");
     setMessage("");
     setBusy(`upload:${story.id}`);
-    const uploaded: { path: string; imageUrl: string; sortOrder: number }[] = [];
+    let uploadedCount = 0;
 
     try {
-      for (const [index, file] of files.entries()) {
-        const safeName = file.name.replace(/[^\w.-]/g, "-");
-        const path = `${story.id}/${crypto.randomUUID()}-${safeName}`;
-        const { error: uploadError } = await client.storage
-          .from("portfolio-photos")
-          .upload(path, file, { contentType: file.type, upsert: false });
-
-        if (uploadError) throw uploadError;
-        const { data } = client.storage.from("portfolio-photos").getPublicUrl(path);
-        uploaded.push({
-          path,
-          imageUrl: data.publicUrl,
-          sortOrder:
-            Math.max(0, ...story.story_photos.map((photo) => photo.sort_order)) + index + 1,
-        });
+      for (const file of files) {
+        await uploadAdminImage(client, file, "story-photo", story.id);
+        uploadedCount += 1;
       }
     } catch (uploadError) {
-      let detail = errorMessage(uploadError);
-      if (uploaded.length > 0) {
-        const { error: cleanupError } = await client.storage
-          .from("portfolio-photos")
-          .remove(uploaded.map((photo) => photo.path));
-        if (cleanupError) {
-          detail += ` Uploaded-file cleanup also failed: ${cleanupError.message}`;
+      let refreshWarning = "";
+      if (uploadedCount > 0) {
+        try {
+          await loadStories(client);
+        } catch (loadError) {
+          refreshWarning = ` The gallery could not refresh: ${errorMessage(loadError)}`;
         }
       }
-      setError(`Unable to add photos: ${detail}`);
+      const partialResult = uploadedCount
+        ? ` ${uploadedCount} photo${uploadedCount === 1 ? " was" : "s were"} saved successfully.`
+        : "";
+      setError(`Unable to add photos: ${errorMessage(uploadError)}${partialResult}${refreshWarning}`);
       setBusy("");
       return;
     }
 
-    const { error: insertError } = await client.from("story_photos").insert(
-      uploaded.map((photo) => ({
-        story_id: story.id,
-        image_url: photo.imageUrl,
-        storage_path: photo.path,
-        sort_order: photo.sortOrder,
-      })),
-    );
-    if (insertError) {
-      const { error: cleanupError } = await client.storage
-        .from("portfolio-photos")
-        .remove(uploaded.map((photo) => photo.path));
-      const detail = cleanupError
-        ? `${insertError.message} Uploaded-file cleanup also failed: ${cleanupError.message}`
-        : insertError.message;
-      setError(`Unable to save uploaded photos: ${detail}`);
-      setBusy("");
-      return;
-    }
-
-    setMessage(`${uploaded.length} photo${uploaded.length === 1 ? "" : "s"} added.`);
+    setMessage(`${uploadedCount} photo${uploadedCount === 1 ? "" : "s"} added.`);
     try {
       await loadStories(client);
     } catch (loadError) {
@@ -691,10 +706,10 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       return;
     }
     if (
-      !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(file.type) ||
-      file.size > 12 * 1024 * 1024
+      file.size > MAX_IMAGE_SIZE_BYTES ||
+      !detectImageMimeType(new Uint8Array(await file.slice(0, 12).arrayBuffer()))
     ) {
-      setError(`${file.name} must be a JPEG, PNG, WebP, or AVIF image no larger than 12 MB.`);
+      setError(`${file.name} must be a JPEG, PNG, or WebP image no larger than 4 MB.`);
       return;
     }
 
@@ -711,60 +726,12 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     setError("");
     setMessage("");
     setBusy("hero-background");
-    const path = `hero/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]/g, "-")}`;
-    let uploaded = false;
-
     try {
-      const { error: uploadError } = await client.storage
-        .from("portfolio-photos")
-        .upload(path, file, { contentType: file.type, upsert: false });
-      if (uploadError) throw uploadError;
-      uploaded = true;
-
-      const { data } = client.storage.from("portfolio-photos").getPublicUrl(path);
-      const { error: saveError } = await client.from("site_settings").upsert({
-        key: "hero_background",
-        value: data.publicUrl,
-        storage_path: path,
-      });
-
-      if (saveError) {
-        const { error: cleanupError } = await client.storage.from("portfolio-photos").remove([path]);
-        uploaded = false;
-        const detail = cleanupError
-          ? `${saveError.message} Uploaded-file cleanup also failed: ${cleanupError.message}`
-          : saveError.message;
-        setError(`Unable to save the hero background: ${detail}`);
-        setBusy("");
-        return;
-      }
-
-      uploaded = false;
-      const previousPath = heroBackground?.storage_path;
-      setHeroBackground({ value: data.publicUrl, storage_path: path });
+      const imageUrl = await uploadAdminImage(client, file, "hero-background");
+      setHeroBackground({ value: imageUrl, storage_path: null });
       setMessage("Homepage background photo updated.");
-
-      if (previousPath && previousPath !== path) {
-        try {
-          const { error: cleanupError } = await client.storage
-            .from("portfolio-photos")
-            .remove([previousPath]);
-          if (cleanupError) {
-            setError(`Background photo updated, but the previous file could not be deleted: ${cleanupError.message}`);
-          }
-        } catch (cleanupError) {
-          setError(`Background photo updated, but the previous file could not be deleted: ${errorMessage(cleanupError)}`);
-        }
-      }
     } catch (uploadError) {
-      let detail = errorMessage(uploadError);
-      if (uploaded) {
-        const { error: cleanupError } = await client.storage.from("portfolio-photos").remove([path]);
-        if (cleanupError) {
-          detail += ` Uploaded-file cleanup also failed: ${cleanupError.message}`;
-        }
-      }
-      setError(`Unable to upload the hero background: ${detail}`);
+      setError(`Unable to upload the hero background: ${errorMessage(uploadError)}`);
     } finally {
       setBusy("");
     }
@@ -1028,7 +995,7 @@ on conflict (user_id) do nothing;`}</code></pre>
                 <span>{busy === "hero-background" ? "UPLOADING PHOTO…" : "＋ CHANGE BACKGROUND PHOTO"}</span>
                 <input
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/avif"
+                  accept="image/jpeg,image/png,image/webp"
                   disabled={busy === "hero-background"}
                   onChange={(event) => void handleHeroBackgroundUpload(event)}
                 />
@@ -1225,7 +1192,7 @@ on conflict (user_id) do nothing;`}</code></pre>
                     <span>{busy === `upload:${story.id}` ? "UPLOADING PHOTOS…" : "＋ ADD PHOTOS"}</span>
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/webp,image/avif"
+                      accept="image/jpeg,image/png,image/webp"
                       multiple
                       disabled={busy === `upload:${story.id}`}
                       onChange={(event) => void handleUpload(story, event)}

@@ -1,10 +1,13 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { Bot, InlineKeyboard, webhookCallback, type Context } from "grammy";
+import { rateLimitRequest } from "@/lib/rate-limit";
 import { getTelegramPackages, type TelegramPackage } from "@/lib/telegram-packages";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MENU_TEXT = "📸 Welcome! Choose a photo shoot package to see what's included:";
+const MENU_TEXT =
+  "📸 Welcome! Choose a photo shoot package to see what's included.\n\nSelecting a package shares your Telegram username (or account ID) with the photographer.";
 
 let webhookHandler: ((request: Request) => Promise<Response>) | undefined;
 
@@ -16,11 +19,10 @@ function requiredEnvironmentVariable(name: string) {
   return value;
 }
 
-function getWebhookHandler() {
+function getWebhookHandler(webhookSecret: string) {
   if (webhookHandler) return webhookHandler;
 
   const botToken = requiredEnvironmentVariable("BOT_TOKEN");
-  const webhookSecret = requiredEnvironmentVariable("WEBHOOK_SECRET");
   const photographerUsername = requiredEnvironmentVariable("PHOTOGRAPHER_USERNAME").replace(/^@/, "");
   if (!/^[A-Za-z0-9_]{5,32}$/.test(photographerUsername)) {
     throw new Error("PHOTOGRAPHER_USERNAME must be a valid Telegram username without @.");
@@ -77,7 +79,10 @@ function getWebhookHandler() {
 
     const channelId = process.env.CHANNEL_ID?.trim();
     if (channelId) {
-      const who = ctx.from.username ? `@${ctx.from.username}` : `id ${ctx.from.id}`;
+      const username = ctx.from.username;
+      const who = username && /^[A-Za-z0-9_]{5,32}$/.test(username)
+        ? `@${username}`
+        : `id ${ctx.from.id}`;
       try {
         await bot.api.sendMessage(
           channelId,
@@ -105,5 +110,21 @@ function getWebhookHandler() {
 }
 
 export async function POST(request: Request) {
-  return getWebhookHandler()(request);
+  const rateLimitResponse = await rateLimitRequest(request, {
+    scope: "telegram-webhook",
+    requests: 120,
+    window: "1 m",
+  });
+  if (rateLimitResponse) return rateLimitResponse;
+
+  const webhookSecret = requiredEnvironmentVariable("WEBHOOK_SECRET");
+  const suppliedSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
+  const expectedDigest = createHash("sha256").update(webhookSecret).digest();
+  const suppliedDigest = createHash("sha256").update(suppliedSecret ?? "").digest();
+
+  if (!suppliedSecret || !timingSafeEqual(expectedDigest, suppliedDigest)) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  return getWebhookHandler(webhookSecret)(request);
 }
