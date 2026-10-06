@@ -41,8 +41,9 @@ type Confirmation = {
 type PanelState = "checking" | "signed-out" | "not-admin" | "setup-error" | "admin";
 type AdminSection = "collections" | "telegram";
 
-const ADMIN_SESSION_DURATION_MS = 10 * 60 * 1000;
+const ADMIN_SESSION_DURATION_MS = 5 * 60 * 1000;
 const SESSION_WARNING_DURATION_MS = 60 * 1000;
+const ADMIN_SESSION_STARTED_AT_KEY = "admin-session-started-at";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -266,13 +267,23 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     const {
       data: { subscription },
     } = client.auth.onAuthStateChange((event, session) => {
-      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
-        setSessionExpiresAt(session ? Date.now() + ADMIN_SESSION_DURATION_MS : null);
+      if (event === "SIGNED_IN") {
+        const startedAt = Date.now();
+        sessionStorage.setItem(ADMIN_SESSION_STARTED_AT_KEY, String(startedAt));
+        setSessionExpiresAt(session ? startedAt + ADMIN_SESSION_DURATION_MS : null);
+      } else if (event === "INITIAL_SESSION" && session) {
+        const storedStartedAt = Number(sessionStorage.getItem(ADMIN_SESSION_STARTED_AT_KEY));
+        const startedAt = Number.isFinite(storedStartedAt) && storedStartedAt > 0
+          ? storedStartedAt
+          : Date.now();
+        sessionStorage.setItem(ADMIN_SESSION_STARTED_AT_KEY, String(startedAt));
+        setSessionExpiresAt(startedAt + ADMIN_SESSION_DURATION_MS);
       } else if (event === "SIGNED_OUT") {
+        sessionStorage.removeItem(ADMIN_SESSION_STARTED_AT_KEY);
         setSessionExpiresAt(null);
         setSessionWarning(false);
       }
-      queueMicrotask(() => void verifyAccess(client));
+      setTimeout(() => void verifyAccess(client), 0);
     });
 
     return () => {

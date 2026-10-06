@@ -21,5 +21,7 @@ export function createPublicSupabaseClient() {
 
 export function createBrowserSupabaseClient() {
   const { url, anonKey } = getSupabasePublicConfig();
-  return createBrowserClient(url, anonKey);
+  return createBrowserClient(url, anonKey, {
+    auth: { persistSession: false },
+  });
 }
