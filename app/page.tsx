@@ -12,7 +12,7 @@ export default async function Home() {
   ]);
   const telegramBotUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
   const telegramUrl = telegramBotUsername
-    ? `https://t.me/${telegramBotUsername.replace(/^@/, "")}`
+    ? `https://t.me/${telegramBotUsername.replace(/^@/, "")}?start=website`
     : "https://t.me/";
 
   return (

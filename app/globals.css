@@ -890,7 +890,8 @@ a:focus-visible {
 
 .admin-form label,
 .admin-create-fields label,
-.admin-story-fields label {
+.admin-story-fields label,
+.admin-package-fields label {
   display: grid;
   gap: 9px;
   color: var(--muted);
@@ -901,7 +902,9 @@ a:focus-visible {
 
 .admin-form input,
 .admin-create-fields input,
-.admin-story-fields input {
+.admin-story-fields input,
+.admin-package-fields input,
+.admin-package-fields textarea {
   width: 100%;
   min-height: 43px;
   padding: 10px 12px;
@@ -913,6 +916,12 @@ a:focus-visible {
   font: 13px Arial, Helvetica, sans-serif;
   letter-spacing: normal;
   text-transform: none;
+}
+
+.admin-package-fields textarea {
+  min-height: 130px;
+  resize: vertical;
+  line-height: 1.6;
 }
 
 .admin-primary-button,
@@ -1024,6 +1033,58 @@ a:focus-visible {
 
 .admin-background-preview .admin-upload-button {
   margin-top: 10px;
+}
+
+.admin-package-section {
+  display: grid;
+  gap: 20px;
+  margin: 42px 0;
+}
+
+.admin-package-intro h2,
+.admin-package-create h3 {
+  margin: 12px 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 24px;
+  font-weight: 400;
+}
+
+.admin-package-create,
+.admin-package-card {
+  padding: 25px;
+  border: 1px solid var(--line);
+}
+
+.admin-package-create h3 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  font-size: 20px;
+}
+
+.admin-package-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.45fr);
+  align-items: end;
+  gap: 15px;
+}
+
+.admin-package-details {
+  grid-column: 1 / -1;
+}
+
+.admin-package-fields > .admin-primary-button {
+  justify-self: start;
+}
+
+.admin-package-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-package-list {
+  display: grid;
+  gap: 15px;
 }
 
 .admin-create-fields,
@@ -1567,13 +1628,23 @@ a:focus-visible {
 
   .admin-create-form,
   .admin-story,
-  .admin-background-form {
+  .admin-background-form,
+  .admin-package-create,
+  .admin-package-card {
     padding: 18px;
   }
 
   .admin-background-form {
     grid-template-columns: 1fr;
     gap: 18px;
+  }
+
+  .admin-package-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-package-details {
+    grid-column: auto;
   }
 
   .admin-confirm-backdrop {

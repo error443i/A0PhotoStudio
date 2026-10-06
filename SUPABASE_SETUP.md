@@ -5,7 +5,7 @@ The admin panel at `/admin` uses Supabase Auth, Postgres, and Storage. The publi
 ## Configure Supabase
 
 1. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to the local environment and hosting provider. Use the project's public anon/publishable key only; never put a service-role key in a `NEXT_PUBLIC_` variable.
-2. In Supabase SQL Editor, run [`supabase/migrations/20261005000000_portfolio_admin.sql`](./supabase/migrations/20261005000000_portfolio_admin.sql). It creates the tables and `portfolio-photos` public image bucket, protects writes with row-level security, seeds the current four stories and their photos, and asks PostgREST to reload its schema cache.
+2. In Supabase SQL Editor, run [`supabase/migrations/20261005000000_portfolio_admin.sql`](./supabase/migrations/20261005000000_portfolio_admin.sql), [`supabase/migrations/20261006000000_hero_background.sql`](./supabase/migrations/20261006000000_hero_background.sql), and [`supabase/migrations/20261007000000_telegram_packages.sql`](./supabase/migrations/20261007000000_telegram_packages.sql), in that order. The portfolio migration creates the tables and `portfolio-photos` public image bucket, protects writes with row-level security, and seeds the current four stories and their photos. The Telegram packages migration creates the bot package list, protects edits to authorized admins, and seeds the existing three packages. Each migration asks PostgREST to reload its schema cache.
 3. In Supabase Authentication, create an admin user with email and password. Disable public sign-ups if they are not needed.
 4. Authorize the admin account in SQL Editor. Replace `YOUR_LOGIN_EMAIL` with the exact email used to sign in:
 
@@ -15,7 +15,7 @@ The admin panel at `/admin` uses Supabase Auth, Postgres, and Storage. The publi
    on conflict (user_id) do nothing;
    ```
 
-Only UUIDs in `admin_users` may edit stories or upload/delete portfolio photos. An authenticated user who is not on that list cannot write through the application or the Supabase API.
+Only UUIDs in `admin_users` may edit stories, manage Telegram packages, or upload/delete portfolio photos. An authenticated user who is not on that list cannot write through the application or the Supabase API.
 
 If `/admin` says the account is not authorized, run the query above for the account you intend to use as administrator, then refresh `/admin`. The query does not grant access to any other account.
 
@@ -23,4 +23,4 @@ If `/admin` says it cannot find `public.admin_users` in the schema cache, the mi
 
 ## Use the editor
 
-Visit `/admin`, sign in with the authorized account, and add a story with its title, category, and year. Use **Save details** to edit existing story metadata, **Add photos** to upload one or more JPEG, PNG, WebP, or AVIF images (up to 12 MB each), and **Remove photo** to delete a photo from a collection. Changes are stored in Supabase and appear on the public portfolio.
+Visit `/admin` and sign in with the authorized administrator account. The **Photo shoot packages** section lets you add packages, edit their names, prices, and details, or delete packages; the Telegram bot reads the saved list from Supabase. The featured stories section lets you add a story with its title, category, and year. Use **Save details** to edit existing story metadata, **Add photos** to upload one or more JPEG, PNG, WebP, or AVIF images (up to 12 MB each), and **Remove photo** to delete a photo from a collection. Changes are stored in Supabase and appear on the public portfolio or bot.

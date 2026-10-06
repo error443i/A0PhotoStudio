@@ -4,6 +4,7 @@ import Link from "next/link";
 import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
+import type { TelegramPackage } from "@/lib/telegram-packages";
 
 type Photo = {
   id: string;
@@ -20,6 +21,8 @@ type Story = {
   sort_order: number;
   story_photos: Photo[];
 };
+
+type PackageDraft = Pick<TelegramPackage, "title" | "price" | "details">;
 
 type HeroBackground = {
   value: string;
@@ -59,11 +62,14 @@ export default function AdminPanel() {
   const [supabase, setSupabase] = useState<SupabaseClient | null>(null);
   const [panelState, setPanelState] = useState<PanelState>("checking");
   const [stories, setStories] = useState<Story[]>([]);
+  const [telegramPackages, setTelegramPackages] = useState<TelegramPackage[]>([]);
   const [heroBackground, setHeroBackground] = useState<HeroBackground>(null);
   const [drafts, setDrafts] = useState<Record<string, Pick<Story, "title" | "category" | "year">>>({});
+  const [packageDrafts, setPackageDrafts] = useState<Record<string, PackageDraft>>({});
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [newStory, setNewStory] = useState({ title: "", category: "", year: "" });
+  const [newPackage, setNewPackage] = useState<PackageDraft>({ title: "", price: "", details: "" });
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
@@ -117,6 +123,24 @@ export default function AdminPanel() {
     setHeroBackground(data);
   }
 
+  async function loadTelegramPackages(client: SupabaseClient) {
+    const { data, error: queryError } = await client
+      .from("telegram_packages")
+      .select("id, title, price, details, sort_order")
+      .order("sort_order")
+      .order("created_at");
+
+    if (queryError) throw queryError;
+
+    const orderedPackages = (data ?? []) as TelegramPackage[];
+    setTelegramPackages(orderedPackages);
+    setPackageDrafts(
+      Object.fromEntries(
+        orderedPackages.map(({ id, title, price, details }) => [id, { title, price, details }]),
+      ),
+    );
+  }
+
   useEffect(() => {
     let mounted = true;
     let client: SupabaseClient;
@@ -158,7 +182,7 @@ export default function AdminPanel() {
       if (adminError) {
         if (isMissingSchemaTable(adminError)) {
           setError(
-            "The admin tables are missing from Supabase. Run supabase/migrations/20261005000000_portfolio_admin.sql in the Supabase SQL Editor, then refresh this page.",
+            "The admin tables are missing from Supabase. Run supabase/migrations/20261005000000_portfolio_admin.sql, supabase/migrations/20261006000000_hero_background.sql, and supabase/migrations/20261007000000_telegram_packages.sql in the Supabase SQL Editor, then refresh this page.",
           );
           setPanelState("setup-error");
         } else {
@@ -175,16 +199,17 @@ export default function AdminPanel() {
       try {
         await loadStories(supabaseClient);
         await loadHeroBackground(supabaseClient);
+        await loadTelegramPackages(supabaseClient);
         if (mounted) setPanelState("admin");
       } catch (loadError) {
         if (mounted) {
           if (isMissingSchemaTable(loadError)) {
             setError(
-              "Required admin tables are missing from Supabase. Run supabase/migrations/20261005000000_portfolio_admin.sql and supabase/migrations/20261006000000_hero_background.sql in the Supabase SQL Editor, then refresh this page.",
+              "Required admin tables are missing from Supabase. Run supabase/migrations/20261005000000_portfolio_admin.sql, supabase/migrations/20261006000000_hero_background.sql, and supabase/migrations/20261007000000_telegram_packages.sql in the Supabase SQL Editor, then refresh this page.",
             );
             setPanelState("setup-error");
           } else {
-            setError(`Unable to load featured stories: ${errorMessage(loadError)}`);
+            setError(`Unable to load admin content: ${errorMessage(loadError)}`);
             setPanelState("admin");
           }
         }
@@ -446,6 +471,115 @@ export default function AdminPanel() {
       setError(`Story was saved, but the list could not refresh: ${errorMessage(loadError)}`);
     }
     setBusy("");
+  }
+
+  async function handleCreatePackage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    if (!supabase) {
+      setError("Supabase is not initialized. Refresh the page and try again.");
+      return;
+    }
+
+    setBusy("create-package");
+    try {
+      const { error: insertError } = await supabase.from("telegram_packages").insert({
+        title: newPackage.title.trim(),
+        price: newPackage.price.trim(),
+        details: newPackage.details.trim(),
+        sort_order: Math.max(0, ...telegramPackages.map((item) => item.sort_order)) + 1,
+      });
+      if (insertError) throw insertError;
+
+      setNewPackage({ title: "", price: "", details: "" });
+      await loadTelegramPackages(supabase);
+      setMessage("Telegram package added.");
+    } catch (createError) {
+      setError(`Unable to add Telegram package: ${errorMessage(createError)}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleSavePackage(packageId: string) {
+    const draft = packageDrafts[packageId];
+    if (!draft) return;
+    if (!supabase) {
+      setError("Supabase is not initialized. Refresh the page and try again.");
+      return;
+    }
+
+    setConfirmation({
+      title: "Save package changes?",
+      description: `Save the updated details for “${draft.title.trim()}” and apply them to the Telegram bot?`,
+      confirmLabel: "Save changes",
+      destructive: false,
+      onConfirm: () => void savePackage(supabase, packageId, draft),
+    });
+  }
+
+  async function savePackage(
+    client: SupabaseClient,
+    packageId: string,
+    draft: PackageDraft,
+  ) {
+    setError("");
+    setMessage("");
+    setBusy(`save-package:${packageId}`);
+    try {
+      const { error: updateError } = await client
+        .from("telegram_packages")
+        .update({
+          title: draft.title.trim(),
+          price: draft.price.trim(),
+          details: draft.details.trim(),
+        })
+        .eq("id", packageId);
+      if (updateError) throw updateError;
+
+      await loadTelegramPackages(client);
+      setMessage("Telegram package saved.");
+    } catch (saveError) {
+      setError(`Unable to save Telegram package: ${errorMessage(saveError)}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function handleDeletePackage(photoPackage: TelegramPackage) {
+    if (!supabase) {
+      setError("Supabase is not initialized. Refresh the page and try again.");
+      return;
+    }
+
+    setConfirmation({
+      title: "Delete this Telegram package?",
+      description: `“${photoPackage.title}” will be removed from the bot. This cannot be undone.`,
+      confirmLabel: "Delete package",
+      destructive: true,
+      onConfirm: () => void deletePackage(supabase, photoPackage),
+    });
+  }
+
+  async function deletePackage(client: SupabaseClient, photoPackage: TelegramPackage) {
+    setError("");
+    setMessage("");
+    setBusy(`delete-package:${photoPackage.id}`);
+    try {
+      const { error: deleteError } = await client
+        .from("telegram_packages")
+        .delete()
+        .eq("id", photoPackage.id);
+      if (deleteError) throw deleteError;
+
+      await loadTelegramPackages(client);
+      setMessage(`Telegram package “${photoPackage.title}” deleted.`);
+    } catch (deleteError) {
+      setError(`Unable to delete Telegram package: ${errorMessage(deleteError)}`);
+    } finally {
+      setBusy("");
+    }
   }
 
   async function handleUpload(story: Story, event: ChangeEvent<HTMLInputElement>) {
@@ -785,7 +919,7 @@ export default function AdminPanel() {
         <section className="admin-auth">
           <p className="section-index">AO PHOTOGRAPHY · ADMIN</p>
           <h1>Welcome <em>back.</em></h1>
-          <p className="admin-intro">Sign in with your authorized administrator account to manage featured stories and photographs.</p>
+          <p className="admin-intro">Sign in with your authorized administrator account to manage Telegram packages, featured stories, and photographs.</p>
           {error && <p className="admin-alert" role="alert">{error}</p>}
           <form className="admin-form" onSubmit={handleLogin}>
             <label>
@@ -832,7 +966,7 @@ on conflict (user_id) do nothing;`}</code></pre>
         <section className="admin-auth">
           <p className="section-index">AO PHOTOGRAPHY · SETUP REQUIRED</p>
           <h1>One last <em>step.</em></h1>
-          <p className="admin-intro">The database tables required by the admin panel are not available yet. In your Supabase project, open SQL Editor and run <code>supabase/migrations/20261005000000_portfolio_admin.sql</code> and <code>supabase/migrations/20261006000000_hero_background.sql</code>. Then refresh this page.</p>
+          <p className="admin-intro">The database tables required by the admin panel are not available yet. In your Supabase project, open SQL Editor and run <code>supabase/migrations/20261005000000_portfolio_admin.sql</code>, <code>supabase/migrations/20261006000000_hero_background.sql</code>, and <code>supabase/migrations/20261007000000_telegram_packages.sql</code>. Then refresh this page.</p>
           {error && <p className="admin-alert" role="alert">{error}</p>}
           <button className="admin-secondary-button" type="button" onClick={() => window.location.reload()}>REFRESH PAGE</button>
         </section>
@@ -842,7 +976,7 @@ on conflict (user_id) do nothing;`}</code></pre>
             <div>
               <p className="section-index">AO PHOTOGRAPHY · CONTENT</p>
               <h1>Featured <em>stories.</em></h1>
-              <p className="admin-intro">Update titles and details, add new collections, and manage each story’s photographs.</p>
+              <p className="admin-intro">Manage Telegram package details, update featured stories, and organize their photographs.</p>
             </div>
             <button className="admin-secondary-button" type="button" onClick={handleLogout}>SIGN OUT</button>
           </div>
@@ -872,6 +1006,131 @@ on conflict (user_id) do nothing;`}</code></pre>
                   onChange={(event) => void handleHeroBackgroundUpload(event)}
                 />
               </label>
+            </div>
+          </section>
+
+          <section className="admin-package-section" aria-labelledby="telegram-packages-heading">
+            <div className="admin-package-intro">
+              <p className="section-index">TELEGRAM BOT · PACKAGES</p>
+              <h2 id="telegram-packages-heading">Photo shoot packages</h2>
+              <p className="admin-intro">
+                Add or edit the package names, prices, and details shown in the Telegram bot.
+                Changes are available to the bot immediately after saving.
+              </p>
+            </div>
+
+            <form className="admin-package-create" onSubmit={handleCreatePackage}>
+              <h3>Add a package</h3>
+              <div className="admin-package-fields">
+                <label>
+                  Package name
+                  <input
+                    value={newPackage.title}
+                    maxLength={40}
+                    onChange={(event) => setNewPackage({ ...newPackage, title: event.target.value })}
+                    required
+                  />
+                </label>
+                <label>
+                  Price
+                  <input
+                    value={newPackage.price}
+                    maxLength={20}
+                    onChange={(event) => setNewPackage({ ...newPackage, price: event.target.value })}
+                    required
+                  />
+                </label>
+                <label className="admin-package-details">
+                  Package details
+                  <textarea
+                    value={newPackage.details}
+                    maxLength={3500}
+                    onChange={(event) => setNewPackage({ ...newPackage, details: event.target.value })}
+                    required
+                  />
+                </label>
+                <button className="admin-primary-button" type="submit" disabled={busy === "create-package"}>
+                  {busy === "create-package" ? "ADDING…" : "ADD PACKAGE"}
+                </button>
+              </div>
+            </form>
+
+            <div className="admin-package-list">
+              {telegramPackages.map((photoPackage, index) => {
+                const draft = packageDrafts[photoPackage.id] ?? photoPackage;
+                return (
+                  <article className="admin-package-card" key={photoPackage.id}>
+                    <div className="admin-story-heading">
+                      <span className="section-index">PACKAGE {String(index + 1).padStart(2, "0")}</span>
+                    </div>
+                    <div className="admin-package-fields">
+                      <label>
+                        Package name
+                        <input
+                          value={draft.title}
+                          maxLength={40}
+                          onChange={(event) =>
+                            setPackageDrafts({
+                              ...packageDrafts,
+                              [photoPackage.id]: { ...draft, title: event.target.value },
+                            })
+                          }
+                          required
+                        />
+                      </label>
+                      <label>
+                        Price
+                        <input
+                          value={draft.price}
+                          maxLength={20}
+                          onChange={(event) =>
+                            setPackageDrafts({
+                              ...packageDrafts,
+                              [photoPackage.id]: { ...draft, price: event.target.value },
+                            })
+                          }
+                          required
+                        />
+                      </label>
+                      <label className="admin-package-details">
+                        Package details
+                        <textarea
+                          value={draft.details}
+                          maxLength={3500}
+                          onChange={(event) =>
+                            setPackageDrafts({
+                              ...packageDrafts,
+                              [photoPackage.id]: { ...draft, details: event.target.value },
+                            })
+                          }
+                          required
+                        />
+                      </label>
+                      <div className="admin-package-actions">
+                        <button
+                          className="admin-secondary-button"
+                          type="button"
+                          disabled={busy === `save-package:${photoPackage.id}`}
+                          onClick={() => void handleSavePackage(photoPackage.id)}
+                        >
+                          {busy === `save-package:${photoPackage.id}` ? "SAVING…" : "SAVE PACKAGE"}
+                        </button>
+                        <button
+                          className="admin-story-delete-button"
+                          type="button"
+                          disabled={busy === `delete-package:${photoPackage.id}`}
+                          onClick={() => handleDeletePackage(photoPackage)}
+                        >
+                          {busy === `delete-package:${photoPackage.id}` ? "DELETING…" : "DELETE"}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+              {telegramPackages.length === 0 && (
+                <p className="admin-empty-photos">There are no Telegram packages yet. Add one above.</p>
+              )}
             </div>
           </section>
 

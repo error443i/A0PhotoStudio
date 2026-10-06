@@ -20,7 +20,7 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 ## Telegram package bot
 
-The Telegram webhook is handled by `app/api/telegram/route.ts`. Update the `PACKAGES` list in that file to change package names, prices, and details.
+The Telegram webhook is handled by `app/api/telegram/route.ts`. Manage the bot's package list, prices, and details from the authorized admin panel at `/admin`.
 
 Set these environment variables locally and in your Vercel project:
 
@@ -33,6 +33,8 @@ NEXT_PUBLIC_TELEGRAM_BOT_USERNAME=
 ```
 
 `BOT_TOKEN` and `WEBHOOK_SECRET` are required by the webhook. `PHOTOGRAPHER_USERNAME` is the photographer's public Telegram username without `@`. `CHANNEL_ID` is optional and enables package-interest notifications. `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` is the public bot username used by the website's contact links.
+
+To enable package editing and load the bot's package list from Supabase, first apply the portfolio admin migration and then run [`supabase/migrations/20261007000000_telegram_packages.sql`](./supabase/migrations/20261007000000_telegram_packages.sql) in the same Supabase project's SQL Editor. Sign in at `/admin` with an authorized admin account to add, edit, or delete packages.
 
 After deploying, register the webhook once with Telegram, substituting the actual values:
 
