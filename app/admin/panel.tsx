@@ -103,8 +103,15 @@ async function uploadAdminImage(
 }
 
 export default function AdminPanel({ section = "collections" }: { section?: AdminSection }) {
-  const [supabase, setSupabase] = useState<SupabaseClient | null>(null);
-  const [panelState, setPanelState] = useState<PanelState>("checking");
+  const [supabaseInit] = useState<{ client: SupabaseClient | null; error: string | null }>(() => {
+    try {
+      return { client: createBrowserSupabaseClient(), error: null };
+    } catch (clientError) {
+      return { client: null, error: `Unable to initialize Supabase: ${errorMessage(clientError)}` };
+    }
+  });
+  const supabase = supabaseInit.client;
+  const [panelState, setPanelState] = useState<PanelState>(supabaseInit.error ? "signed-out" : "checking");
   const [stories, setStories] = useState<Story[]>([]);
   const [telegramPackages, setTelegramPackages] = useState<TelegramPackage[]>([]);
   const [heroBackground, setHeroBackground] = useState<HeroBackground>(null);
@@ -115,7 +122,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   const [newStory, setNewStory] = useState({ title: "", category: "", year: "" });
   const [newPackage, setNewPackage] = useState<PackageDraft>({ title: "", price: "", details: "" });
   const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(supabaseInit.error ?? "");
   const [busy, setBusy] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [sessionWarning, setSessionWarning] = useState(false);
@@ -186,19 +193,9 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   }
 
   useEffect(() => {
+    if (!supabase) return;
     let mounted = true;
-    let client: SupabaseClient;
-
-    try {
-      client = createBrowserSupabaseClient();
-      setSupabase(client);
-    } catch (clientError) {
-      setError(`Unable to initialize Supabase: ${errorMessage(clientError)}`);
-      setPanelState("signed-out");
-      return () => {
-        mounted = false;
-      };
-    }
+    const client = supabase;
 
     async function verifyAccess(supabaseClient: SupabaseClient) {
       setPanelState("checking");
@@ -290,7 +287,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [section]);
+  }, [section, supabase]);
 
   useEffect(() => {
     if (!supabase || !sessionExpiresAt) return;
@@ -375,7 +372,9 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
         setError("Unable to continue your session. Please sign in again.");
         return;
       }
-      setSessionExpiresAt(Date.now() + ADMIN_SESSION_DURATION_MS);
+      const startedAt = Date.now();
+      sessionStorage.setItem(ADMIN_SESSION_STARTED_AT_KEY, String(startedAt));
+      setSessionExpiresAt(startedAt + ADMIN_SESSION_DURATION_MS);
       setSessionWarning(false);
     } catch (refreshError) {
       setError(`Unable to continue your session: ${errorMessage(refreshError)}`);

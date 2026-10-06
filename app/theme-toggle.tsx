@@ -1,27 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark";
 
 const storageKey = "still-studio-theme";
 
+function subscribe(callback: () => void) {
+  window.addEventListener("storage", callback);
+  return () => window.removeEventListener("storage", callback);
+}
+
+function getSnapshot(): Theme {
+  const savedTheme = window.localStorage.getItem(storageKey);
+  return savedTheme === "dark" || savedTheme === "light" ? savedTheme : "light";
+}
+
+function getServerSnapshot(): Theme {
+  return "light";
+}
+
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>("light");
+  const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   useEffect(() => {
-    const savedTheme = window.localStorage.getItem(storageKey);
-    if (savedTheme === "dark" || savedTheme === "light") {
-      setTheme(savedTheme);
-      document.documentElement.dataset.theme = savedTheme;
-    }
-  }, []);
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   function toggleTheme() {
     const nextTheme = theme === "light" ? "dark" : "light";
     document.documentElement.dataset.theme = nextTheme;
     window.localStorage.setItem(storageKey, nextTheme);
-    setTheme(nextTheme);
+    window.dispatchEvent(new Event("storage"));
   }
 
   return (
