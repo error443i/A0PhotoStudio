@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ChangeEvent, type FormEvent, useEffect, useState } from "react";
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 import { detectImageMimeType, MAX_IMAGE_SIZE_BYTES } from "@/lib/image-validation";
@@ -192,18 +192,20 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     );
   }
 
-  useEffect(() => {
-    if (!supabase) return;
-    let mounted = true;
-    const client = supabase;
-
-    async function verifyAccess(supabaseClient: SupabaseClient) {
+  const verifyAccess = useCallback(
+    async (supabaseClient: SupabaseClient) => {
       setPanelState("checking");
       const { data, error: authError } = await supabaseClient.auth.getUser();
-      if (!mounted) return;
 
-      if (authError && authError.name !== "AuthSessionMissingError" && authError.status !== 401) {
-        setError(`Unable to verify your session: ${authError.message}`);
+      if (authError) {
+        const isSessionMissing =
+          authError.name === "AuthSessionMissingError" ||
+          authError.status === 401 ||
+          authError.message?.toLowerCase().includes("session missing") ||
+          authError.message?.toLowerCase().includes("auth session missing");
+        if (!isSessionMissing) {
+          setError(`Unable to verify your session: ${authError.message}`);
+        }
         setPanelState("signed-out");
         return;
       }
@@ -219,7 +221,6 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
         .eq("user_id", data.user.id)
         .maybeSingle();
 
-      if (!mounted) return;
       if (adminError) {
         if (isMissingSchemaTable(adminError)) {
           setError(
@@ -244,23 +245,26 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
           await loadStories(supabaseClient);
           await loadHeroBackground(supabaseClient);
         }
-        if (mounted) setPanelState("admin");
+        setPanelState("admin");
       } catch (loadError) {
-        if (mounted) {
-          if (isMissingSchemaTable(loadError)) {
-            setError(
-              "Required admin tables are missing from Supabase. Run supabase/migrations/20261005000000_portfolio_admin.sql, supabase/migrations/20261006000000_hero_background.sql, and supabase/migrations/20261007000000_telegram_packages.sql in the Supabase SQL Editor, then refresh this page.",
-            );
-            setPanelState("setup-error");
-          } else {
-            setError(`Unable to load admin content: ${errorMessage(loadError)}`);
-            setPanelState("admin");
-          }
+        if (isMissingSchemaTable(loadError)) {
+          setError(
+            "Required admin tables are missing from Supabase. Run supabase/migrations/20261005000000_portfolio_admin.sql, supabase/migrations/20261006000000_hero_background.sql, and supabase/migrations/20261007000000_telegram_packages.sql in the Supabase SQL Editor, then refresh this page.",
+          );
+          setPanelState("setup-error");
+        } else {
+          setError(`Unable to load admin content: ${errorMessage(loadError)}`);
+          setPanelState("admin");
         }
       }
-    }
+    },
+    [section],
+  );
 
-    void verifyAccess(client);
+  useEffect(() => {
+    if (!supabase) return;
+    const client = supabase;
+
     const {
       data: { subscription },
     } = client.auth.onAuthStateChange((event, session) => {
@@ -284,10 +288,9 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     });
 
     return () => {
-      mounted = false;
       subscription.unsubscribe();
     };
-  }, [section, supabase]);
+  }, [supabase, verifyAccess]);
 
   useEffect(() => {
     if (!supabase || !sessionExpiresAt) return;
@@ -405,6 +408,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setMessage("");
     setBusy("login");
 
     if (!supabase) {
@@ -413,9 +417,15 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       return;
     }
     try {
-      const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-      if (loginError) setError("Unable to sign in. Check your credentials or contact the administrator.");
-      else setPassword("");
+      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+      if (loginError) {
+        setError(loginError.message || "Unable to sign in. Check your credentials.");
+      } else {
+        setPassword("");
+        if (loginData?.user) {
+          await verifyAccess(supabase);
+        }
+      }
     } catch (loginError) {
       setError(`Unable to sign in: ${errorMessage(loginError)}`);
     } finally {
@@ -886,7 +896,17 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   }
 
   if (panelState === "checking") {
-    return <main className="admin-page"><p className="admin-status">Checking admin access…</p></main>;
+    return (
+      <main className="admin-page">
+        <header className="admin-topbar">
+          <Link className="admin-brand" href="/">AO PHOTOGRAPHY</Link>
+          <Link className="admin-back-link" href="/">VIEW WEBSITE <span aria-hidden="true">↗</span></Link>
+        </header>
+        <section className="admin-auth" style={{ textAlign: "center" }}>
+          <p className="admin-status">Checking admin access…</p>
+        </section>
+      </main>
+    );
   }
 
   return (
