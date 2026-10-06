@@ -39,7 +39,7 @@ UPSTASH_REDIS_REST_TOKEN=
 
 `SUPABASE_SERVICE_ROLE_KEY` is required for secure image uploads and must be configured only as a server-side environment variable in Vercel and local development. Never prefix it with `NEXT_PUBLIC_` or expose it to browser code.
 
-Production also requires the server-only Upstash Redis REST URL and token for distributed rate limits on the Telegram webhook and admin image upload endpoint. The limiter allows 120 webhook requests and 30 image uploads per IP per minute. Create a Redis database, add these values to Vercel without a `NEXT_PUBLIC_` prefix, and redeploy; production requests fail closed if rate limiting is not configured.
+The Telegram webhook and admin image upload endpoint are rate limited to 120 and 30 requests per IP per minute. Without Redis, a bounded per-instance limiter is used, which works without extra accounts but is not shared across Vercel instances. For a shared distributed limit, optionally configure `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` as server-only variables. Vercel Firewall rate-limit rules are another option for platform-level protection.
 
 To enable package editing and load the bot's package list from Supabase, first apply the portfolio admin migration and then run [`supabase/migrations/20261007000000_telegram_packages.sql`](./supabase/migrations/20261007000000_telegram_packages.sql) in the same Supabase project's SQL Editor. Sign in at `/admin` with an authorized admin account to add, edit, or delete packages.
 
