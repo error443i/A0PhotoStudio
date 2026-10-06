@@ -38,6 +38,7 @@ type Confirmation = {
 };
 
 type PanelState = "checking" | "signed-out" | "not-admin" | "setup-error" | "admin";
+type AdminSection = "collections" | "telegram";
 
 const ADMIN_SESSION_DURATION_MS = 10 * 60 * 1000;
 const SESSION_WARNING_DURATION_MS = 60 * 1000;
@@ -58,7 +59,7 @@ function isMissingSchemaTable(error: unknown) {
   );
 }
 
-export default function AdminPanel() {
+export default function AdminPanel({ section = "collections" }: { section?: AdminSection }) {
   const [supabase, setSupabase] = useState<SupabaseClient | null>(null);
   const [panelState, setPanelState] = useState<PanelState>("checking");
   const [stories, setStories] = useState<Story[]>([]);
@@ -197,9 +198,12 @@ export default function AdminPanel() {
       }
 
       try {
-        await loadStories(supabaseClient);
-        await loadHeroBackground(supabaseClient);
-        await loadTelegramPackages(supabaseClient);
+        if (section === "telegram") {
+          await loadTelegramPackages(supabaseClient);
+        } else {
+          await loadStories(supabaseClient);
+          await loadHeroBackground(supabaseClient);
+        }
         if (mounted) setPanelState("admin");
       } catch (loadError) {
         if (mounted) {
@@ -233,7 +237,7 @@ export default function AdminPanel() {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [section]);
 
   useEffect(() => {
     if (!supabase || !sessionExpiresAt) return;
@@ -974,17 +978,40 @@ on conflict (user_id) do nothing;`}</code></pre>
         <section className="admin-content">
           <div className="admin-heading">
             <div>
-              <p className="section-index">AO PHOTOGRAPHY · CONTENT</p>
-              <h1>Featured <em>stories.</em></h1>
-              <p className="admin-intro">Manage Telegram package details, update featured stories, and organize their photographs.</p>
+              <p className="section-index">AO PHOTOGRAPHY · ADMIN</p>
+              <h1>{section === "telegram" ? <>Telegram <em>bot.</em></> : <>Featured <em>collections.</em></>}</h1>
+              <p className="admin-intro">
+                {section === "telegram"
+                  ? "Manage the photo packages and details shown to clients in Telegram."
+                  : "Manage featured collections, photographs, and the homepage background."}
+              </p>
             </div>
             <button className="admin-secondary-button" type="button" onClick={handleLogout}>SIGN OUT</button>
           </div>
 
+          <nav className="admin-section-nav" aria-label="Admin sections">
+            <Link
+              className={`admin-section-link${section === "telegram" ? " is-active" : ""}`}
+              href="/admin/telegram"
+              aria-current={section === "telegram" ? "page" : undefined}
+            >
+              TELEGRAM BOT
+              <span>Manage packages and prices</span>
+            </Link>
+            <Link
+              className={`admin-section-link${section === "collections" ? " is-active" : ""}`}
+              href="/admin"
+              aria-current={section === "collections" ? "page" : undefined}
+            >
+              FEATURED COLLECTIONS
+              <span>Manage stories, photos, and homepage</span>
+            </Link>
+          </nav>
+
           {error && <p className="admin-alert" role="alert">{error}</p>}
           {message && <p className="admin-success" role="status">{message}</p>}
 
-          <section className="admin-background-form" aria-labelledby="background-heading">
+          {section === "collections" && <section className="admin-background-form" aria-labelledby="background-heading">
             <div>
               <p className="section-index">HOMEPAGE · HERO</p>
               <h2 id="background-heading">Background photo</h2>
@@ -1007,9 +1034,9 @@ on conflict (user_id) do nothing;`}</code></pre>
                 />
               </label>
             </div>
-          </section>
+          </section>}
 
-          <section className="admin-package-section" aria-labelledby="telegram-packages-heading">
+          {section === "telegram" && <section className="admin-package-section" aria-labelledby="telegram-packages-heading">
             <div className="admin-package-intro">
               <p className="section-index">TELEGRAM BOT · PACKAGES</p>
               <h2 id="telegram-packages-heading">Photo shoot packages</h2>
@@ -1132,9 +1159,9 @@ on conflict (user_id) do nothing;`}</code></pre>
                 <p className="admin-empty-photos">There are no Telegram packages yet. Add one above.</p>
               )}
             </div>
-          </section>
+          </section>}
 
-          <form className="admin-create-form" onSubmit={handleCreateStory}>
+          {section === "collections" && <><form className="admin-create-form" onSubmit={handleCreateStory}>
             <h2>Add a featured story</h2>
             <div className="admin-create-fields">
               <label>Story title<input value={newStory.title} onChange={(event) => setNewStory({ ...newStory, title: event.target.value })} required /></label>
@@ -1207,7 +1234,7 @@ on conflict (user_id) do nothing;`}</code></pre>
                 </article>
               );
             })}
-          </div>
+          </div></>}
         </section>
       )}
       {confirmation && (

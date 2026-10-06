@@ -96,7 +96,8 @@ export default async function Home() {
         <h2 data-reveal>Let&apos;s make something<br /><em>you can feel.</em></h2>
         <p data-reveal>Tell me what you&apos;re dreaming up. I&apos;d love to hear about it.</p>
         <a className="contact-button" href={telegramUrl} data-reveal>
-          CONTACT US <span aria-hidden="true">↗</span>
+          CONTACT US
+           <span aria-hidden="true">↗</span>
         </a>
       </section>
 
