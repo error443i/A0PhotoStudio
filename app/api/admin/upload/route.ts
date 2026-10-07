@@ -1,8 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { detectImageMimeType, MAX_IMAGE_SIZE_BYTES } from "@/lib/image-validation";
+import {
+  detectImageMimeType,
+  getExtensionForMime,
+  MAX_IMAGE_SIZE_BYTES,
+} from "@/lib/image-validation";
 import { rateLimitRequest } from "@/lib/rate-limit";
 import { getSupabasePublicConfig } from "@/lib/supabase";
+import { verifyAdminSession } from "@/lib/supabase-server";
+import { toProxiedImageUrl } from "@/lib/image-url";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,7 +55,39 @@ async function handleAdminUpload(request: Request) {
 
   const authorization = request.headers.get("authorization");
   const token = authorization?.match(/^Bearer ([A-Za-z0-9._~-]+)$/)?.[1];
-  if (!token) return jsonResponse({ error: "Sign in as an administrator to upload images." }, 401);
+
+  const { url, anonKey } = getSupabasePublicConfig();
+
+  if (token) {
+    const supabase = createClient(url, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+
+    const { data: userData, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !userData.user) {
+      return jsonResponse({ error: "Your admin session has expired. Sign in again." }, 401);
+    }
+
+    const { data: adminRecord, error: adminError } = await supabase
+      .from("admin_users")
+      .select("user_id")
+      .eq("user_id", userData.user.id)
+      .maybeSingle();
+    if (adminError) {
+      console.error("Unable to verify admin access for image upload.");
+      return jsonResponse({ error: "Unable to verify admin access." }, 500);
+    }
+    if (!adminRecord) return jsonResponse({ error: "Administrator access is required." }, 403);
+  } else {
+    const authResult = await verifyAdminSession();
+    if (authResult.status === "signed-out") {
+      return jsonResponse({ error: "Sign in as an administrator to upload images." }, 401);
+    }
+    if (authResult.status !== "admin") {
+      return jsonResponse({ error: "Administrator access is required." }, 403);
+    }
+  }
 
   let formData: FormData;
   try {
@@ -68,36 +106,38 @@ async function handleAdminUpload(request: Request) {
 
   const { file, purpose } = parsed.data;
   if (file.size === 0 || file.size > MAX_IMAGE_SIZE_BYTES) {
-    return jsonResponse({ error: "Images must be no larger than 4 MB." }, 413);
+    return jsonResponse({ error: "Images must be no larger than 20 MB." }, 413);
   }
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const contentType = detectImageMimeType(bytes);
+  let bytes = new Uint8Array(await file.arrayBuffer());
+  let contentType: string | null = detectImageMimeType(bytes, file.name || file.type);
   if (!contentType) {
-    return jsonResponse({ error: "Only JPEG, PNG, and WebP image files are accepted." }, 415);
+    return jsonResponse({ error: "Unsupported image format. Please upload a valid image file." }, 415);
   }
 
-  const { url, anonKey } = getSupabasePublicConfig();
-  const supabase = createClient(url, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  });
+  let extension = getExtensionForMime(contentType, file.name);
 
-  const { data: userData, error: authError } = await supabase.auth.getUser(token);
-  if (authError || !userData.user) {
-    return jsonResponse({ error: "Your admin session has expired. Sign in again." }, 401);
+  if (contentType === "image/tiff") {
+    try {
+      const sharp = (await import("sharp")).default;
+      const converted = await sharp(bytes).webp({ quality: 90 }).toBuffer();
+      bytes = new Uint8Array(converted);
+      contentType = "image/webp";
+      extension = "webp";
+    } catch (e) {
+      console.warn("Could not convert TIFF with sharp, saving as original:", e);
+    }
+  } else if (contentType === "image/heic" || contentType === "image/heif") {
+    try {
+      const sharp = (await import("sharp")).default;
+      const converted = await sharp(bytes).webp({ quality: 90 }).toBuffer();
+      bytes = new Uint8Array(converted);
+      contentType = "image/webp";
+      extension = "webp";
+    } catch {
+      // Keep original HEIC
+    }
   }
-
-  const { data: adminRecord, error: adminError } = await supabase
-    .from("admin_users")
-    .select("user_id")
-    .eq("user_id", userData.user.id)
-    .maybeSingle();
-  if (adminError) {
-    console.error("Unable to verify admin access for image upload.");
-    return jsonResponse({ error: "Unable to verify admin access." }, 500);
-  }
-  if (!adminRecord) return jsonResponse({ error: "Administrator access is required." }, 403);
 
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!serviceRoleKey) {
@@ -123,7 +163,6 @@ async function handleAdminUpload(request: Request) {
     if (!story) return jsonResponse({ error: "The selected collection was not found." }, 404);
   }
 
-  const extension = contentType === "image/jpeg" ? "jpg" : contentType === "image/png" ? "png" : "webp";
   const storagePath = purpose === "hero-background"
     ? `hero/${crypto.randomUUID()}.${extension}`
     : `${storyId}/${crypto.randomUUID()}.${extension}`;
@@ -166,7 +205,7 @@ async function handleAdminUpload(request: Request) {
       return jsonResponse({ error: "Unable to save the image to the selected collection." }, 500);
     }
 
-    return jsonResponse({ imageUrl: publicUrlData.publicUrl });
+    return jsonResponse({ imageUrl: toProxiedImageUrl(publicUrlData.publicUrl) ?? publicUrlData.publicUrl });
   }
 
   const { data: previousSetting, error: settingsError } = await adminSupabase
@@ -198,7 +237,7 @@ async function handleAdminUpload(request: Request) {
     if (removeError) console.error("Unable to delete previous homepage background.");
   }
 
-  return jsonResponse({ imageUrl: publicUrlData.publicUrl });
+  return jsonResponse({ imageUrl: toProxiedImageUrl(publicUrlData.publicUrl) ?? publicUrlData.publicUrl });
 }
 
 export async function POST(request: Request) {

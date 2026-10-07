@@ -17,7 +17,13 @@ const supabaseImagePattern = supabaseUrl
 
 const nextConfig: NextConfig = {
   devIndicators: false,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "25mb",
+    },
+  },
   images: { remotePatterns: supabaseImagePattern ? [supabaseImagePattern] : [] },
+
   async headers() {
     return [
       {

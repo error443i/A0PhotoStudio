@@ -1435,6 +1435,185 @@ a:focus-visible {
   background: #bd2929;
 }
 
+.admin-error-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(28 25 35 / 60%);
+  backdrop-filter: blur(6px);
+  animation: adminFadeIn 180ms ease;
+}
+
+.admin-error-dialog {
+  position: relative;
+  width: min(100%, 520px);
+  padding: 40px 36px 32px;
+  border: 1px solid #ffd2cf;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgb(21 18 29 / 28%), 0 4px 20px rgb(217 54 54 / 14%);
+  color: #24231f;
+  text-align: center;
+  animation: adminPopIn 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.admin-error-close {
+  position: absolute;
+  top: 14px;
+  right: 17px;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  background: transparent;
+  color: #4b4945;
+  cursor: pointer;
+  font: 30px/1 Arial, Helvetica, sans-serif;
+  transition: color 150ms ease;
+}
+
+.admin-error-close:hover {
+  color: #1a1917;
+}
+
+.admin-error-icon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  margin: 0 auto 20px;
+  border: 8px solid #ffeded;
+  border-radius: 50%;
+  background: #d93636;
+  color: white;
+  font: 700 24px Arial, Helvetica, sans-serif;
+}
+
+.admin-error-dialog h2 {
+  margin: 0 0 8px;
+  font: 700 clamp(22px, 4.5vw, 26px)/1.2 Arial, Helvetica, sans-serif;
+  letter-spacing: -0.04em;
+  color: #1c1923;
+}
+
+.admin-error-subtitle {
+  margin: 0 0 18px;
+  color: #66635f;
+  font: 14px/1.5 Arial, Helvetica, sans-serif;
+}
+
+.admin-error-body {
+  margin: 0 0 24px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #fff5f4;
+  border: 1px solid #fbd0cd;
+  text-align: left;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.admin-error-message {
+  margin: 0;
+  color: #a04f46;
+  font: 500 13px/1.6 "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.admin-error-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.admin-error-actions button {
+  min-height: 48px;
+  border-radius: 13px;
+  cursor: pointer;
+  font: 600 14px Arial, Helvetica, sans-serif;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.admin-error-actions button:active {
+  transform: scale(0.98);
+}
+
+.admin-error-copy {
+  border: 1px solid #c9c8c6;
+  background: white;
+  color: #24231f;
+}
+
+.admin-error-copy:hover {
+  background: #f5f4f2;
+}
+
+.admin-error-dismiss {
+  border: 1px solid #d93636;
+  background: #d93636;
+  color: white;
+}
+
+.admin-error-dismiss:hover {
+  border-color: #bd2929;
+  background: #bd2929;
+}
+
+@keyframes adminFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes adminPopIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+[data-theme="dark"] .admin-error-dialog {
+  background: #1c1a21;
+  border-color: #552723;
+  color: #f0eeeb;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 60%), 0 4px 20px rgb(217 54 54 / 20%);
+}
+
+[data-theme="dark"] .admin-error-dialog h2 {
+  color: #f7f6f4;
+}
+
+[data-theme="dark"] .admin-error-close {
+  color: #aaa69f;
+}
+
+[data-theme="dark"] .admin-error-close:hover {
+  color: #f7f6f4;
+}
+
+[data-theme="dark"] .admin-error-subtitle {
+  color: #b5b1aa;
+}
+
+[data-theme="dark"] .admin-error-body {
+  background: #2a1b1b;
+  border-color: #552723;
+}
+
+[data-theme="dark"] .admin-error-message {
+  color: #ff9d94;
+}
+
+[data-theme="dark"] .admin-error-copy {
+  border-color: #403e47;
+  background: #26242d;
+  color: #f0eeeb;
+}
+
+[data-theme="dark"] .admin-error-copy:hover {
+  background: #312e3a;
+}
+
 @keyframes gallery-enter {
   from {
     opacity: 0;
@@ -1890,16 +2069,19 @@ a:focus-visible {
   }
 
   .admin-confirm-backdrop,
-  .admin-session-backdrop {
+  .admin-session-backdrop,
+  .admin-error-backdrop {
     padding: 16px;
   }
 
-  .admin-confirm-dialog {
+  .admin-confirm-dialog,
+  .admin-error-dialog {
     padding: 36px 20px 24px;
     border-radius: 18px;
   }
 
-  .admin-confirm-actions {
+  .admin-confirm-actions,
+  .admin-error-actions {
     gap: 10px;
   }
 

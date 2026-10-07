@@ -14,9 +14,29 @@ export function getSupabasePublicConfig() {
   return { url, anonKey };
 }
 
-export function createPublicSupabaseClient() {
+export function createPublicSupabaseClient(options?: { timeoutMs?: number }) {
   const { url, anonKey } = getSupabasePublicConfig();
-  return createClient(url, anonKey);
+  const timeoutMs = options?.timeoutMs ?? 2500;
+
+  return createClient(url, anonKey, {
+    global: {
+      fetch: (input, init) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        if (init?.signal) {
+          init.signal.addEventListener("abort", () => controller.abort());
+        }
+
+        return fetch(input, {
+          ...init,
+          signal: controller.signal,
+        }).finally(() => {
+          clearTimeout(timeoutId);
+        });
+      },
+    },
+  });
 }
 
 export function createBrowserSupabaseClient() {

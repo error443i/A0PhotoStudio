@@ -2,33 +2,33 @@
 
 import Link from "next/link";
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useState } from "react";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { createBrowserSupabaseClient } from "@/lib/supabase";
 import { detectImageMimeType, MAX_IMAGE_SIZE_BYTES } from "@/lib/image-validation";
 import type { TelegramPackage } from "@/lib/telegram-packages";
+import {
+  getAdminSessionAction,
+  loginAdminAction,
+  logoutAdminAction,
+  refreshAdminSessionAction,
+  getAdminStoriesAction,
+  getAdminHeroBackgroundAction,
+  getAdminTelegramPackagesAction,
+  createStoryAction,
+  saveStoryAction,
+  deleteStoryAction,
+  removePhotoAction,
+  createTelegramPackageAction,
+  saveTelegramPackageAction,
+  deleteTelegramPackageAction,
+  uploadAdminImageAction,
+  type AdminStory,
+  type AdminStoryPhoto,
+  type AdminHeroBackground,
+} from "@/app/actions/admin";
 
-type Photo = {
-  id: string;
-  image_url: string;
-  storage_path: string | null;
-  sort_order: number;
-};
-
-type Story = {
-  id: string;
-  title: string;
-  category: string;
-  year: string;
-  sort_order: number;
-  story_photos: Photo[];
-};
-
+type Photo = AdminStoryPhoto;
+type Story = AdminStory;
 type PackageDraft = Pick<TelegramPackage, "title" | "price" | "details">;
-
-type HeroBackground = {
-  value: string;
-  storage_path: string | null;
-} | null;
+type HeroBackground = AdminHeroBackground;
 
 type Confirmation = {
   title: string;
@@ -49,69 +49,8 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isMissingSchemaTable(error: unknown) {
-  if (typeof error !== "object" || error === null || !("message" in error)) return false;
-  if (typeof error.message !== "string") return false;
-
-  const code = "code" in error && typeof error.code === "string" ? error.code : undefined;
-  return (
-    code === "PGRST205" ||
-    error.message.includes("schema cache") ||
-    error.message.includes("Could not find the table")
-  );
-}
-
-async function uploadAdminImage(
-  client: SupabaseClient,
-  file: File,
-  purpose: "story-photo" | "hero-background",
-  storyId?: string,
-) {
-  const { data, error: sessionError } = await client.auth.getSession();
-  if (sessionError) throw new Error("Unable to verify your admin session. Sign in again.");
-  if (!data.session) throw new Error("Your admin session has expired. Sign in again.");
-
-  const formData = new FormData();
-  formData.set("purpose", purpose);
-  if (storyId) formData.set("storyId", storyId);
-  formData.set("file", file);
-
-  const response = await fetch("/api/admin/upload", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${data.session.access_token}` },
-    body: formData,
-  });
-  const result: unknown = await response.json();
-  if (
-    !response.ok ||
-    typeof result !== "object" ||
-    result === null ||
-    !("imageUrl" in result) ||
-    typeof result.imageUrl !== "string"
-  ) {
-    const message =
-      typeof result === "object" &&
-      result !== null &&
-      "error" in result &&
-      typeof result.error === "string"
-        ? result.error
-        : "Unable to upload the image.";
-    throw new Error(message);
-  }
-
-  return result.imageUrl;
-}
-
 export default function AdminPanel({ section = "collections" }: { section?: AdminSection }) {
-  const [supabaseInit] = useState<{ client: SupabaseClient | null; error: string | null }>(() => {
-    try {
-      return { client: createBrowserSupabaseClient(), error: null };
-    } catch (clientError) {
-      return { client: null, error: `Unable to initialize Supabase: ${errorMessage(clientError)}` };
-    }
-  });
-  const supabase = supabaseInit.client;
-  const [panelState, setPanelState] = useState<PanelState>(supabaseInit.error ? "signed-out" : "checking");
+  const [panelState, setPanelState] = useState<PanelState>("checking");
   const [stories, setStories] = useState<Story[]>([]);
   const [telegramPackages, setTelegramPackages] = useState<TelegramPackage[]>([]);
   const [heroBackground, setHeroBackground] = useState<HeroBackground>(null);
@@ -122,7 +61,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   const [newStory, setNewStory] = useState({ title: "", category: "", year: "" });
   const [newPackage, setNewPackage] = useState<PackageDraft>({ title: "", price: "", details: "" });
   const [message, setMessage] = useState("");
-  const [error, setError] = useState(supabaseInit.error ?? "");
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [sessionWarning, setSessionWarning] = useState(false);
@@ -130,172 +69,115 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
   const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
 
+  const [copyStatus, setCopyStatus] = useState("");
+
   useEffect(() => {
-    if (!confirmation) return;
+    if (!confirmation && !error) return;
 
     function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setConfirmation(null);
+      if (event.key === "Escape") {
+        if (error) {
+          setError("");
+        } else if (confirmation) {
+          setConfirmation(null);
+        }
+      }
     }
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [confirmation]);
+  }, [confirmation, error]);
 
-  async function loadStories(client: SupabaseClient) {
-    const { data, error: queryError } = await client
-      .from("featured_stories")
-      .select("id, title, category, year, sort_order, story_photos(id, image_url, storage_path, sort_order)")
-      .order("sort_order")
-      .order("sort_order", { referencedTable: "story_photos" });
-
-    if (queryError) throw queryError;
-
-    const orderedStories = ((data ?? []) as Story[]).map((story) => ({
-      ...story,
-      story_photos: story.story_photos ?? [],
-    }));
-
+  const loadStories = useCallback(async () => {
+    const result = await getAdminStoriesAction();
+    if (!result.success) {
+      throw new Error(result.error || "Unable to load collections.");
+    }
+    const orderedStories = result.stories ?? [];
     setStories(orderedStories);
     setDrafts(
       Object.fromEntries(
         orderedStories.map(({ id, title, category, year }) => [id, { title, category, year }]),
       ),
     );
-  }
+  }, []);
 
-  async function loadHeroBackground(client: SupabaseClient) {
-    const { data, error: queryError } = await client
-      .from("site_settings")
-      .select("value, storage_path")
-      .eq("key", "hero_background")
-      .maybeSingle();
+  const loadHeroBackground = useCallback(async () => {
+    const result = await getAdminHeroBackgroundAction();
+    if (!result.success) {
+      throw new Error(result.error || "Unable to load homepage background.");
+    }
+    setHeroBackground(result.heroBackground ?? null);
+  }, []);
 
-    if (queryError) throw queryError;
-    setHeroBackground(data);
-  }
-
-  async function loadTelegramPackages(client: SupabaseClient) {
-    const { data, error: queryError } = await client
-      .from("telegram_packages")
-      .select("id, title, price, details, sort_order")
-      .order("sort_order")
-      .order("created_at");
-
-    if (queryError) throw queryError;
-
-    const orderedPackages = (data ?? []) as TelegramPackage[];
+  const loadTelegramPackages = useCallback(async () => {
+    const result = await getAdminTelegramPackagesAction();
+    if (!result.success) {
+      throw new Error(result.error || "Unable to load Telegram packages.");
+    }
+    const orderedPackages = result.packages ?? [];
     setTelegramPackages(orderedPackages);
     setPackageDrafts(
       Object.fromEntries(
         orderedPackages.map(({ id, title, price, details }) => [id, { title, price, details }]),
       ),
     );
-  }
+  }, []);
 
-  const verifyAccess = useCallback(
-    async (supabaseClient: SupabaseClient) => {
-      setPanelState("checking");
-      const { data, error: authError } = await supabaseClient.auth.getUser();
+  const verifyAccess = useCallback(async () => {
+    const sessionRes = await getAdminSessionAction();
 
-      if (authError) {
-        const isSessionMissing =
-          authError.name === "AuthSessionMissingError" ||
-          authError.status === 401 ||
-          authError.message?.toLowerCase().includes("session missing") ||
-          authError.message?.toLowerCase().includes("auth session missing");
-        if (!isSessionMissing) {
-          setError(`Unable to verify your session: ${authError.message}`);
-        }
-        setPanelState("signed-out");
-        return;
+    if (sessionRes.status === "signed-out") {
+      setPanelState("signed-out");
+      setSessionExpiresAt(null);
+      return;
+    }
+
+    if (sessionRes.status === "setup-error") {
+      setError(
+        sessionRes.error ||
+          "The admin tables are missing from Supabase. Run migrations in the Supabase SQL Editor.",
+      );
+      setPanelState("setup-error");
+      return;
+    }
+
+    if (sessionRes.status === "not-admin") {
+      setError(sessionRes.error || "Access restricted. You are not on the authorized admin list.");
+      setPanelState("not-admin");
+      return;
+    }
+
+    try {
+      if (section === "telegram") {
+        await loadTelegramPackages();
+      } else {
+        await loadStories();
+        await loadHeroBackground();
       }
+      setPanelState("admin");
 
-      if (!data.user) {
-        setPanelState("signed-out");
-        return;
-      }
-
-      const { data: adminRecord, error: adminError } = await supabaseClient
-        .from("admin_users")
-        .select("user_id")
-        .eq("user_id", data.user.id)
-        .maybeSingle();
-
-      if (adminError) {
-        if (isMissingSchemaTable(adminError)) {
-          setError(
-            "The admin tables are missing from Supabase. Run supabase/migrations/20261005000000_portfolio_admin.sql, supabase/migrations/20261006000000_hero_background.sql, and supabase/migrations/20261007000000_telegram_packages.sql in the Supabase SQL Editor, then refresh this page.",
-          );
-          setPanelState("setup-error");
-        } else {
-          setError(`Unable to verify admin access: ${adminError.message}`);
-          setPanelState("not-admin");
-        }
-        return;
-      }
-      if (!adminRecord) {
-        setPanelState("not-admin");
-        return;
-      }
-
-      try {
-        if (section === "telegram") {
-          await loadTelegramPackages(supabaseClient);
-        } else {
-          await loadStories(supabaseClient);
-          await loadHeroBackground(supabaseClient);
-        }
-        setPanelState("admin");
-      } catch (loadError) {
-        if (isMissingSchemaTable(loadError)) {
-          setError(
-            "Required admin tables are missing from Supabase. Run supabase/migrations/20261005000000_portfolio_admin.sql, supabase/migrations/20261006000000_hero_background.sql, and supabase/migrations/20261007000000_telegram_packages.sql in the Supabase SQL Editor, then refresh this page.",
-          );
-          setPanelState("setup-error");
-        } else {
-          setError(`Unable to load admin content: ${errorMessage(loadError)}`);
-          setPanelState("admin");
-        }
-      }
-    },
-    [section],
-  );
+      const storedStartedAt = Number(sessionStorage.getItem(ADMIN_SESSION_STARTED_AT_KEY));
+      const startedAt =
+        Number.isFinite(storedStartedAt) && storedStartedAt > 0 ? storedStartedAt : Date.now();
+      sessionStorage.setItem(ADMIN_SESSION_STARTED_AT_KEY, String(startedAt));
+      setSessionExpiresAt(startedAt + ADMIN_SESSION_DURATION_MS);
+    } catch (loadError) {
+      setError(`Unable to load content: ${errorMessage(loadError)}`);
+      setPanelState("admin");
+    }
+  }, [section, loadStories, loadHeroBackground, loadTelegramPackages]);
 
   useEffect(() => {
-    if (!supabase) return;
-    const client = supabase;
-
-    const {
-      data: { subscription },
-    } = client.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_IN") {
-        const startedAt = Date.now();
-        sessionStorage.setItem(ADMIN_SESSION_STARTED_AT_KEY, String(startedAt));
-        setSessionExpiresAt(session ? startedAt + ADMIN_SESSION_DURATION_MS : null);
-      } else if (event === "INITIAL_SESSION" && session) {
-        const storedStartedAt = Number(sessionStorage.getItem(ADMIN_SESSION_STARTED_AT_KEY));
-        const startedAt = Number.isFinite(storedStartedAt) && storedStartedAt > 0
-          ? storedStartedAt
-          : Date.now();
-        sessionStorage.setItem(ADMIN_SESSION_STARTED_AT_KEY, String(startedAt));
-        setSessionExpiresAt(startedAt + ADMIN_SESSION_DURATION_MS);
-      } else if (event === "SIGNED_OUT") {
-        sessionStorage.removeItem(ADMIN_SESSION_STARTED_AT_KEY);
-        setSessionExpiresAt(null);
-        setSessionWarning(false);
-      }
-      setTimeout(() => void verifyAccess(client), 0);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [supabase, verifyAccess]);
+    const timer = setTimeout(() => {
+      void verifyAccess();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [verifyAccess]);
 
   useEffect(() => {
-    if (!supabase || !sessionExpiresAt) return;
+    if (!sessionExpiresAt) return;
 
-    const client = supabase;
     const expiresAt = sessionExpiresAt;
     let countdownTimer: ReturnType<typeof setInterval> | undefined;
     let expired = false;
@@ -323,19 +205,18 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       if (expired) return;
       expired = true;
       setSessionWarning(false);
+      setSessionExpiresAt(null);
+      sessionStorage.removeItem(ADMIN_SESSION_STARTED_AT_KEY);
       try {
-        const { error: logoutError } = await client.auth.signOut();
-        if (logoutError) {
-          setError(`Unable to sign out after session timeout: ${logoutError.message}`);
-        }
+        await logoutAdminAction();
       } catch (logoutError) {
         setError(`Unable to sign out after session timeout: ${errorMessage(logoutError)}`);
       }
+      setPanelState("signed-out");
     }
 
-    const warningTimer = warningDelay === 0
-      ? undefined
-      : setTimeout(startWarningCountdown, warningDelay);
+    const warningTimer =
+      warningDelay === 0 ? undefined : setTimeout(startWarningCountdown, warningDelay);
     const expiryTimer = setTimeout(() => void expireSession(), expiryDelay);
     const handleVisibilityChange = () => {
       if (document.visibilityState !== "visible" || expired) return;
@@ -358,21 +239,17 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       if (countdownTimer) clearInterval(countdownTimer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [sessionExpiresAt, supabase]);
+  }, [sessionExpiresAt]);
 
   async function handleContinueSession() {
-    if (!supabase || sessionActionBusy) return;
+    if (sessionActionBusy) return;
     setSessionActionBusy(true);
     setError("");
 
     try {
-      const { data, error: refreshError } = await supabase.auth.refreshSession();
-      if (refreshError) {
-        setError(`Unable to continue your session: ${refreshError.message}`);
-        return;
-      }
-      if (!data.session) {
-        setError("Unable to continue your session. Please sign in again.");
+      const result = await refreshAdminSessionAction();
+      if (!result.success) {
+        setError(result.error || "Unable to continue your session. Please sign in again.");
         return;
       }
       const startedAt = Date.now();
@@ -387,17 +264,16 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   }
 
   async function handleSessionLogout() {
-    if (!supabase || sessionActionBusy) return;
+    if (sessionActionBusy) return;
     setSessionActionBusy(true);
     setError("");
 
     try {
-      const { error: logoutError } = await supabase.auth.signOut();
-      if (logoutError) {
-        setError(`Unable to sign out: ${logoutError.message}`);
-        return;
-      }
+      await logoutAdminAction();
+      sessionStorage.removeItem(ADMIN_SESSION_STARTED_AT_KEY);
+      setSessionExpiresAt(null);
       setSessionWarning(false);
+      setPanelState("signed-out");
     } catch (logoutError) {
       setError(`Unable to sign out: ${errorMessage(logoutError)}`);
     } finally {
@@ -411,19 +287,34 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     setMessage("");
     setBusy("login");
 
-    if (!supabase) {
-      setError("Supabase is not initialized. Refresh the page and try again.");
-      setBusy("");
-      return;
-    }
     try {
-      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-      if (loginError) {
-        setError(loginError.message || "Unable to sign in. Check your credentials.");
+      const result = await loginAdminAction({ email, password });
+      if (!result.success) {
+        if (result.status === "setup-error") {
+          setError(result.error || "Admin setup required in Supabase.");
+          setPanelState("setup-error");
+        } else if (result.status === "not-admin") {
+          setError(result.error || "This account is not on the authorized admin list.");
+          setPanelState("not-admin");
+        } else {
+          setError(result.error || "Unable to sign in. Check your credentials.");
+        }
       } else {
         setPassword("");
-        if (loginData?.user) {
-          await verifyAccess(supabase);
+        const startedAt = Date.now();
+        sessionStorage.setItem(ADMIN_SESSION_STARTED_AT_KEY, String(startedAt));
+        setSessionExpiresAt(startedAt + ADMIN_SESSION_DURATION_MS);
+        try {
+          if (section === "telegram") {
+            await loadTelegramPackages();
+          } else {
+            await loadStories();
+            await loadHeroBackground();
+          }
+          setPanelState("admin");
+        } catch (loadError) {
+          setError(`Unable to load content: ${errorMessage(loadError)}`);
+          setPanelState("admin");
         }
       }
     } catch (loginError) {
@@ -434,25 +325,23 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   }
 
   function handleLogout() {
-    if (!supabase) {
-      setError("Supabase is not initialized. Refresh the page and try again.");
-      return;
-    }
-
     setConfirmation({
       title: "Sign out?",
       description: "Are you sure you want to end your admin session?",
       confirmLabel: "Sign out",
       destructive: true,
-      onConfirm: () => void performLogout(supabase),
+      onConfirm: () => void performLogout(),
     });
   }
 
-  async function performLogout(client: SupabaseClient) {
+  async function performLogout() {
     setError("");
     try {
-      const { error: logoutError } = await client.auth.signOut();
-      if (logoutError) setError(`Unable to sign out: ${logoutError.message}`);
+      await logoutAdminAction();
+      sessionStorage.removeItem(ADMIN_SESSION_STARTED_AT_KEY);
+      setSessionExpiresAt(null);
+      setSessionWarning(false);
+      setPanelState("signed-out");
     } catch (logoutError) {
       setError(`Unable to sign out: ${errorMessage(logoutError)}`);
     }
@@ -463,39 +352,22 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     setError("");
     setMessage("");
     setBusy("create-story");
-    if (!supabase) {
-      setError("Supabase is not initialized. Refresh the page and try again.");
-      setBusy("");
-      return;
-    }
 
-    const story = {
-      title: newStory.title.trim(),
-      category: newStory.category.trim(),
-      year: newStory.year.trim(),
-      sort_order: stories.length + 1,
-    };
     try {
-      const { error: insertError } = await supabase.from("featured_stories").insert(story);
-      if (insertError) {
-        setError(`Unable to add featured story: ${insertError.message}`);
+      const res = await createStoryAction(newStory);
+      if (!res.success) {
+        setError(`Unable to add featured story: ${res.error}`);
         setBusy("");
         return;
       }
       setNewStory({ title: "", category: "", year: "" });
       setMessage("Featured story added.");
+      await loadStories();
     } catch (createError) {
       setError(`Unable to add featured story: ${errorMessage(createError)}`);
+    } finally {
       setBusy("");
-      return;
     }
-
-    try {
-      await loadStories(supabase);
-    } catch (loadError) {
-      setError(`Story was added, but the list could not refresh: ${errorMessage(loadError)}`);
-    }
-    setBusy("");
   }
 
   async function handleSaveStory(storyId: string) {
@@ -504,62 +376,35 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     setError("");
     setMessage("");
     setBusy(`save:${storyId}`);
-    if (!supabase) {
-      setError("Supabase is not initialized. Refresh the page and try again.");
-      setBusy("");
-      return;
-    }
 
     try {
-      const { error: updateError } = await supabase
-        .from("featured_stories")
-        .update({
-          title: draft.title.trim(),
-          category: draft.category.trim(),
-          year: draft.year.trim(),
-        })
-        .eq("id", storyId);
-      if (updateError) {
-        setError(`Unable to save story: ${updateError.message}`);
+      const res = await saveStoryAction(storyId, draft);
+      if (!res.success) {
+        setError(`Unable to save story: ${res.error}`);
         setBusy("");
         return;
       }
       setMessage("Story details saved.");
+      await loadStories();
     } catch (saveError) {
       setError(`Unable to save story: ${errorMessage(saveError)}`);
+    } finally {
       setBusy("");
-      return;
     }
-
-    try {
-      await loadStories(supabase);
-    } catch (loadError) {
-      setError(`Story was saved, but the list could not refresh: ${errorMessage(loadError)}`);
-    }
-    setBusy("");
   }
 
   async function handleCreatePackage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setMessage("");
-    if (!supabase) {
-      setError("Supabase is not initialized. Refresh the page and try again.");
-      return;
-    }
-
     setBusy("create-package");
+
     try {
-      const { error: insertError } = await supabase.from("telegram_packages").insert({
-        title: newPackage.title.trim(),
-        price: newPackage.price.trim(),
-        details: newPackage.details.trim(),
-        sort_order: Math.max(0, ...telegramPackages.map((item) => item.sort_order)) + 1,
-      });
-      if (insertError) throw insertError;
+      const res = await createTelegramPackageAction(newPackage);
+      if (!res.success) throw new Error(res.error);
 
       setNewPackage({ title: "", price: "", details: "" });
-      await loadTelegramPackages(supabase);
+      await loadTelegramPackages();
       setMessage("Telegram package added.");
     } catch (createError) {
       setError(`Unable to add Telegram package: ${errorMessage(createError)}`);
@@ -571,40 +416,26 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   async function handleSavePackage(packageId: string) {
     const draft = packageDrafts[packageId];
     if (!draft) return;
-    if (!supabase) {
-      setError("Supabase is not initialized. Refresh the page and try again.");
-      return;
-    }
 
     setConfirmation({
       title: "Save package changes?",
       description: `Save the updated details for “${draft.title.trim()}” and apply them to the Telegram bot?`,
       confirmLabel: "Save changes",
       destructive: false,
-      onConfirm: () => void savePackage(supabase, packageId, draft),
+      onConfirm: () => void savePackage(packageId, draft),
     });
   }
 
-  async function savePackage(
-    client: SupabaseClient,
-    packageId: string,
-    draft: PackageDraft,
-  ) {
+  async function savePackage(packageId: string, draft: PackageDraft) {
     setError("");
     setMessage("");
     setBusy(`save-package:${packageId}`);
-    try {
-      const { error: updateError } = await client
-        .from("telegram_packages")
-        .update({
-          title: draft.title.trim(),
-          price: draft.price.trim(),
-          details: draft.details.trim(),
-        })
-        .eq("id", packageId);
-      if (updateError) throw updateError;
 
-      await loadTelegramPackages(client);
+    try {
+      const res = await saveTelegramPackageAction(packageId, draft);
+      if (!res.success) throw new Error(res.error);
+
+      await loadTelegramPackages();
       setMessage("Telegram package saved.");
     } catch (saveError) {
       setError(`Unable to save Telegram package: ${errorMessage(saveError)}`);
@@ -614,32 +445,25 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   }
 
   function handleDeletePackage(photoPackage: TelegramPackage) {
-    if (!supabase) {
-      setError("Supabase is not initialized. Refresh the page and try again.");
-      return;
-    }
-
     setConfirmation({
       title: "Delete this Telegram package?",
       description: `“${photoPackage.title}” will be removed from the bot. This cannot be undone.`,
       confirmLabel: "Delete package",
       destructive: true,
-      onConfirm: () => void deletePackage(supabase, photoPackage),
+      onConfirm: () => void deletePackage(photoPackage),
     });
   }
 
-  async function deletePackage(client: SupabaseClient, photoPackage: TelegramPackage) {
+  async function deletePackage(photoPackage: TelegramPackage) {
     setError("");
     setMessage("");
     setBusy(`delete-package:${photoPackage.id}`);
-    try {
-      const { error: deleteError } = await client
-        .from("telegram_packages")
-        .delete()
-        .eq("id", photoPackage.id);
-      if (deleteError) throw deleteError;
 
-      await loadTelegramPackages(client);
+    try {
+      const res = await deleteTelegramPackageAction(photoPackage.id);
+      if (!res.success) throw new Error(res.error);
+
+      await loadTelegramPackages();
       setMessage(`Telegram package “${photoPackage.title}” deleted.`);
     } catch (deleteError) {
       setError(`Unable to delete Telegram package: ${errorMessage(deleteError)}`);
@@ -652,21 +476,21 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0) return;
-    if (!supabase) {
-      setError("Supabase is not initialized. Refresh the page and try again.");
-      return;
-    }
 
     const invalidFile = await Promise.all(
       files.map(async (file) => ({
         file,
         isValid:
           file.size <= MAX_IMAGE_SIZE_BYTES &&
-          detectImageMimeType(new Uint8Array(await file.slice(0, 12).arrayBuffer())) !== null,
+          detectImageMimeType(
+            new Uint8Array(await file.slice(0, 512).arrayBuffer()),
+            file.name || file.type,
+          ) !== null,
       })),
     ).then((checked) => checked.find(({ isValid }) => !isValid)?.file);
+
     if (invalidFile) {
-      setError(`${invalidFile.name} must be a JPEG, PNG, or WebP image no larger than 4 MB.`);
+      setError(`${invalidFile.name} must be a valid image file no larger than 20 MB.`);
       return;
     }
 
@@ -676,11 +500,11 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       description: `Add ${photoLabel} to “${story.title}”?`,
       confirmLabel: "Add",
       destructive: false,
-      onConfirm: () => void uploadPhotos(supabase, story, files),
+      onConfirm: () => void uploadPhotos(story, files),
     });
   }
 
-  async function uploadPhotos(client: SupabaseClient, story: Story, files: File[]) {
+  async function uploadPhotos(story: Story, files: File[]) {
     setError("");
     setMessage("");
     setBusy(`upload:${story.id}`);
@@ -688,14 +512,22 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
 
     try {
       for (const file of files) {
-        await uploadAdminImage(client, file, "story-photo", story.id);
+        const formData = new FormData();
+        formData.set("purpose", "story-photo");
+        formData.set("storyId", story.id);
+        formData.set("file", file);
+
+        const res = await uploadAdminImageAction(formData);
+        if (!res.success) {
+          throw new Error(res.error || "Failed to upload photo.");
+        }
         uploadedCount += 1;
       }
     } catch (uploadError) {
       let refreshWarning = "";
       if (uploadedCount > 0) {
         try {
-          await loadStories(client);
+          await loadStories();
         } catch (loadError) {
           refreshWarning = ` The gallery could not refresh: ${errorMessage(loadError)}`;
         }
@@ -710,7 +542,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
 
     setMessage(`${uploadedCount} photo${uploadedCount === 1 ? "" : "s"} added.`);
     try {
-      await loadStories(client);
+      await loadStories();
     } catch (loadError) {
       setError(`Photos were uploaded, but the list could not refresh: ${errorMessage(loadError)}`);
     }
@@ -721,15 +553,15 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!supabase) {
-      setError("Supabase is not initialized. Refresh the page and try again.");
-      return;
-    }
+
     if (
       file.size > MAX_IMAGE_SIZE_BYTES ||
-      !detectImageMimeType(new Uint8Array(await file.slice(0, 12).arrayBuffer()))
+      !detectImageMimeType(
+        new Uint8Array(await file.slice(0, 512).arrayBuffer()),
+        file.name || file.type,
+      )
     ) {
-      setError(`${file.name} must be a JPEG, PNG, or WebP image no larger than 4 MB.`);
+      setError(`${file.name} must be a valid image file no larger than 20 MB.`);
       return;
     }
 
@@ -738,17 +570,25 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       description: "This photo will replace the current homepage background.",
       confirmLabel: "Change photo",
       destructive: false,
-      onConfirm: () => void saveHeroBackground(supabase, file),
+      onConfirm: () => void saveHeroBackground(file),
     });
   }
 
-  async function saveHeroBackground(client: SupabaseClient, file: File) {
+  async function saveHeroBackground(file: File) {
     setError("");
     setMessage("");
     setBusy("hero-background");
+
     try {
-      const imageUrl = await uploadAdminImage(client, file, "hero-background");
-      setHeroBackground({ value: imageUrl, storage_path: null });
+      const formData = new FormData();
+      formData.set("purpose", "hero-background");
+      formData.set("file", file);
+
+      const res = await uploadAdminImageAction(formData);
+      if (!res.success || !res.imageUrl) {
+        throw new Error(res.error || "Unable to upload hero background.");
+      }
+      setHeroBackground({ value: res.imageUrl, storage_path: null });
       setMessage("Homepage background photo updated.");
     } catch (uploadError) {
       setError(`Unable to upload the hero background: ${errorMessage(uploadError)}`);
@@ -758,141 +598,73 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   }
 
   async function handleRemovePhoto(story: Story, photo: Photo) {
-    if (!supabase) {
-      setError("Supabase is not initialized. Refresh the page and try again.");
-      return;
-    }
-
     setConfirmation({
       title: "Remove this file?",
       description: `This photo will be removed from “${story.title}”.`,
       confirmLabel: "Remove",
       destructive: true,
-      onConfirm: () => void removePhoto(supabase, story, photo),
+      onConfirm: () => void removePhoto(story, photo),
     });
   }
 
-  async function removePhoto(client: SupabaseClient, story: Story, photo: Photo) {
+  async function removePhoto(story: Story, photo: Photo) {
     setError("");
     setMessage("");
     setBusy(`remove:${photo.id}`);
-    let operationError = "";
-    let recordDeleted = false;
 
     try {
-      const { error: deleteError } = await client
-        .from("story_photos")
-        .delete()
-        .eq("id", photo.id);
-      if (deleteError) {
-        setError(`Unable to remove photo: ${deleteError.message}`);
+      const res = await removePhotoAction(photo.id, photo.storage_path);
+      if (!res.success) {
+        setError(`Unable to remove photo: ${res.error}`);
         setBusy("");
         return;
       }
-      recordDeleted = true;
-
-      if (photo.storage_path) {
-        const { error: storageError } = await client.storage
-          .from("portfolio-photos")
-          .remove([photo.storage_path]);
-        if (storageError) {
-          operationError = `Photo was removed from the gallery, but its stored file could not be deleted: ${storageError.message}`;
-        }
+      if (res.warning) {
+        setError(res.warning);
+      } else {
+        setMessage(`Photo removed from “${story.title}”.`);
       }
+      await loadStories();
     } catch (removeError) {
-      const detail = errorMessage(removeError);
-      setError(
-        recordDeleted
-          ? `Photo was removed from the gallery, but its stored file could not be deleted: ${detail}`
-          : `Unable to remove photo: ${detail}`,
-      );
+      setError(`Unable to remove photo: ${errorMessage(removeError)}`);
+    } finally {
       setBusy("");
-      return;
     }
-
-    try {
-      await loadStories(client);
-    } catch (loadError) {
-      operationError = `Photo was removed, but the gallery could not refresh: ${errorMessage(loadError)}`;
-    }
-    if (operationError) setError(operationError);
-    else setMessage(`Photo removed from “${story.title}”.`);
-    setBusy("");
   }
 
   function handleDeleteStory(story: Story) {
-    if (!supabase) {
-      setError("Supabase is not initialized. Refresh the page and try again.");
-      return;
-    }
-
     setConfirmation({
       title: "Delete this featured story?",
       description: `“${story.title}” and its ${story.story_photos.length} photo${story.story_photos.length === 1 ? "" : "s"} will be removed from the portfolio. This cannot be undone.`,
       confirmLabel: "Delete story",
       destructive: true,
-      onConfirm: () => void deleteStory(supabase, story),
+      onConfirm: () => void deleteStory(story),
     });
   }
 
-  async function deleteStory(client: SupabaseClient, story: Story) {
+  async function deleteStory(story: Story) {
     setError("");
     setMessage("");
     setBusy(`delete-story:${story.id}`);
 
     try {
-      const { data, error: deleteError } = await client
-        .from("featured_stories")
-        .delete()
-        .eq("id", story.id)
-        .select("id")
-        .maybeSingle();
-
-      if (deleteError) {
-        setError(`Unable to delete featured story: ${deleteError.message}`);
+      const res = await deleteStoryAction(story.id);
+      if (!res.success) {
+        setError(`Unable to delete featured story: ${res.error}`);
         setBusy("");
         return;
       }
-      if (!data) {
-        setError("Unable to delete featured story: it was not found or you do not have permission.");
-        setBusy("");
-        return;
+      if (res.warning) {
+        setError(res.warning);
+      } else {
+        setMessage(`Featured story “${story.title}” deleted.`);
       }
+      await loadStories();
     } catch (deleteError) {
       setError(`Unable to delete featured story: ${errorMessage(deleteError)}`);
+    } finally {
       setBusy("");
-      return;
     }
-
-    const storagePaths = story.story_photos
-      .map((photo) => photo.storage_path)
-      .filter((path): path is string => Boolean(path));
-    let operationError = "";
-
-    if (storagePaths.length > 0) {
-      try {
-        const { error: storageError } = await client.storage
-          .from("portfolio-photos")
-          .remove(storagePaths);
-        if (storageError) {
-          operationError = `Story was deleted, but its uploaded photos could not all be removed from storage: ${storageError.message}`;
-        }
-      } catch (storageError) {
-        operationError = `Story was deleted, but its uploaded photos could not all be removed from storage: ${errorMessage(storageError)}`;
-      }
-    }
-
-    try {
-      await loadStories(client);
-    } catch (loadError) {
-      operationError = operationError
-        ? `${operationError} The story list also could not refresh: ${errorMessage(loadError)}`
-        : `Story was deleted, but the list could not refresh: ${errorMessage(loadError)}`;
-    }
-
-    if (operationError) setError(operationError);
-    else setMessage(`Featured story “${story.title}” deleted.`);
-    setBusy("");
   }
 
   if (panelState === "checking") {
@@ -1025,7 +797,7 @@ on conflict (user_id) do nothing;`}</code></pre>
                 <span>{busy === "hero-background" ? "UPLOADING PHOTO…" : "＋ CHANGE BACKGROUND PHOTO"}</span>
                 <input
                   type="file"
-                  accept="image/jpeg,image/png,image/webp"
+                  accept="image/*,.heic,.heif"
                   disabled={busy === "hero-background"}
                   onChange={(event) => void handleHeroBackgroundUpload(event)}
                 />
@@ -1222,7 +994,7 @@ on conflict (user_id) do nothing;`}</code></pre>
                     <span>{busy === `upload:${story.id}` ? "UPLOADING PHOTOS…" : "＋ ADD PHOTOS"}</span>
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/webp"
+                      accept="image/*,.heic,.heif"
                       multiple
                       disabled={busy === `upload:${story.id}`}
                       onChange={(event) => void handleUpload(story, event)}
@@ -1314,6 +1086,65 @@ on conflict (user_id) do nothing;`}</code></pre>
                 disabled={sessionActionBusy}
               >
                 {sessionActionBusy ? "PLEASE WAIT…" : "Continue session"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {error && (
+        <div
+          className="admin-error-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setError("");
+          }}
+        >
+          <section
+            className="admin-error-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="admin-error-title"
+            aria-describedby="admin-error-description"
+          >
+            <button
+              className="admin-error-close"
+              type="button"
+              aria-label="Close error log"
+              onClick={() => setError("")}
+            >
+              ×
+            </button>
+            <div className="admin-error-icon" aria-hidden="true">
+              !
+            </div>
+            <h2 id="admin-error-title">Action Failed</h2>
+            <p className="admin-error-subtitle">The following error occurred during the operation:</p>
+            <div id="admin-error-description" className="admin-error-body">
+              <pre className="admin-error-message">{error}</pre>
+            </div>
+            <div className="admin-error-actions">
+              <button
+                className="admin-error-copy"
+                type="button"
+                onClick={() => {
+                  if (typeof navigator !== "undefined" && navigator.clipboard) {
+                    navigator.clipboard
+                      .writeText(error)
+                      .then(() => {
+                        setCopyStatus("Copied!");
+                        setTimeout(() => setCopyStatus(""), 2000);
+                      })
+                      .catch(() => {});
+                  }
+                }}
+              >
+                {copyStatus || "Copy Error Log"}
+              </button>
+              <button
+                className="admin-error-dismiss"
+                type="button"
+                onClick={() => setError("")}
+              >
+                Dismiss
               </button>
             </div>
           </section>
