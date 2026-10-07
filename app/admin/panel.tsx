@@ -16,6 +16,7 @@ import {
   saveStoryAction,
   deleteStoryAction,
   removePhotoAction,
+  setStoryCoverPhotoAction,
   createTelegramPackageAction,
   saveTelegramPackageAction,
   deleteTelegramPackageAction,
@@ -611,6 +612,40 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     }
   }
 
+  async function handleSetCoverPhoto(story: Story, photo: Photo) {
+    setError("");
+    setMessage("");
+    setBusy(`cover:${photo.id}`);
+
+    // Optimistically reorder locally so the UI updates instantly
+    setStories((prev) =>
+      prev.map((s) => {
+        if (s.id !== story.id) return s;
+        const target = s.story_photos.find((p) => p.id === photo.id);
+        if (!target) return s;
+        const others = s.story_photos.filter((p) => p.id !== photo.id);
+        return {
+          ...s,
+          story_photos: [target, ...others],
+        };
+      }),
+    );
+
+    try {
+      const res = await setStoryCoverPhotoAction(story.id, photo.id);
+      if (!res.success) {
+        throw new Error(res.error || "Failed to set cover photo.");
+      }
+      setMessage(`Cover photo for “${story.title}” updated.`);
+      await loadStories();
+    } catch (err) {
+      setError(`Unable to set cover photo: ${errorMessage(err)}`);
+      void loadStories();
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function handleRemovePhoto(story: Story, photo: Photo) {
     setConfirmation({
       title: "Remove this file?",
@@ -1014,17 +1049,54 @@ on conflict (user_id) do nothing;`}</code></pre>
 
                   <div className="admin-photo-grid">
                     {story.story_photos.map((photo, photoIndex) => (
-                      <div className="admin-photo" key={photo.id}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={photo.image_url} alt={`${story.title}, photo ${photoIndex + 1}`} />
-                        <button
-                          type="button"
-                          disabled={busy === `remove:${photo.id}`}
-                          onClick={() => void handleRemovePhoto(story, photo)}
-                          aria-label={`Remove photo ${photoIndex + 1} from ${story.title}`}
-                        >
-                          {busy === `remove:${photo.id}` ? "REMOVING…" : "REMOVE PHOTO"}
-                        </button>
+                      <div
+                        className={`admin-photo ${photoIndex === 0 ? "is-cover-photo" : ""}`}
+                        key={photo.id}
+                      >
+                        <div className="admin-photo-preview-wrap">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={photo.image_url}
+                            alt={`${story.title}, photo ${photoIndex + 1}`}
+                          />
+                          {photoIndex === 0 && (
+                            <span
+                              className="admin-photo-cover-badge"
+                              title="Current cover photo of this collection"
+                            >
+                              ★ COVER
+                            </span>
+                          )}
+                        </div>
+                        <div className="admin-photo-actions">
+                          {photoIndex === 0 ? (
+                            <span
+                              className="admin-photo-cover-label"
+                              title="This photo is currently set as the collection cover photo"
+                            >
+                              ★ Cover Photo
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="admin-photo-make-cover"
+                              disabled={busy === `cover:${photo.id}` || busy === `remove:${photo.id}`}
+                              onClick={() => void handleSetCoverPhoto(story, photo)}
+                              title="Set this photo as the cover photo for this collection"
+                            >
+                              {busy === `cover:${photo.id}` ? "SETTING…" : "★ Set as Cover"}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="admin-photo-remove"
+                            disabled={busy === `remove:${photo.id}` || busy === `cover:${photo.id}`}
+                            onClick={() => void handleRemovePhoto(story, photo)}
+                            aria-label={`Remove photo ${photoIndex + 1} from ${story.title}`}
+                          >
+                            {busy === `remove:${photo.id}` ? "REMOVING…" : "REMOVE"}
+                          </button>
+                        </div>
                       </div>
                     ))}
                     {story.story_photos.length === 0 && <p className="admin-empty-photos">No photos in this story yet.</p>}

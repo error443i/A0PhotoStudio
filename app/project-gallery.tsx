@@ -110,26 +110,35 @@ export default function ProjectGallery({ projects }: { projects: PortfolioProjec
               <div className="gallery-photos">
                 {activeProject.images.map((image, index) => (
                   <button
-                    className="gallery-photo"
+                    className={`gallery-photo ${index === 0 ? "gallery-photo-cover" : ""}`}
                     type="button"
                     key={image}
                     data-reveal
                     onClick={() => setActivePhoto(index)}
                     aria-label={`View photo ${index + 1} of ${activeProject.images.length}`}
-                    style={{ backgroundImage: `url("${image}")` }}
                   >
-                    <span>0{index + 1}</span>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={image}
+                      alt={`${activeProject.title}, photo ${index + 1}`}
+                      loading={index < 4 ? "eager" : "lazy"}
+                    />
+                    <span className="gallery-photo-badge">
+                      {index === 0 ? "★ COVER · 01" : `0${index + 1}`}
+                    </span>
                   </button>
                 ))}
               </div>
             ) : (
               <div className="gallery-viewer">
-                <div
-                  className="gallery-featured-photo"
-                  role="img"
-                  aria-label={`${activeProject.title}, photo ${activePhoto + 1}`}
-                  style={{ backgroundImage: `url("${activeProject.images[activePhoto]}")` }}
-                />
+                <div className="gallery-viewer-stage">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    className="gallery-viewer-img"
+                    src={activeProject.images[activePhoto]}
+                    alt={`${activeProject.title}, photo ${activePhoto + 1}`}
+                  />
+                </div>
                 <div className="gallery-viewer-footer">
                   <button
                     type="button"

@@ -488,6 +488,54 @@ export async function removePhotoAction(
 }
 
 /**
+ * Sets a specific photo as the cover photo for a story (reordering it to sort_order = 1).
+ */
+export async function setStoryCoverPhotoAction(
+  storyId: string,
+  photoId: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const authResult = await verifyAdminSession();
+    if (authResult.status !== "admin") throw new Error("Administrator access required.");
+
+    const adminClient = createAdminSupabaseClient();
+
+    const { data: photos, error: fetchError } = await adminClient
+      .from("story_photos")
+      .select("id, sort_order")
+      .eq("story_id", storyId)
+      .order("sort_order");
+
+    if (fetchError) throw fetchError;
+    if (!photos || photos.length === 0) throw new Error("No photos found in this collection.");
+
+    const target = photos.find((p) => p.id === photoId);
+    if (!target) throw new Error("Selected photo not found in this collection.");
+
+    // Put target photo first, keep others in their existing order
+    const reordered = [target, ...photos.filter((p) => p.id !== photoId)];
+
+    for (let i = 0; i < reordered.length; i++) {
+      const p = reordered[i];
+      const newOrder = i + 1;
+      if (p.sort_order !== newOrder) {
+        const { error: updateError } = await adminClient
+          .from("story_photos")
+          .update({ sort_order: newOrder })
+          .eq("id", p.id);
+        if (updateError) throw updateError;
+      }
+    }
+
+    revalidatePath("/");
+    revalidatePath("/admin");
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: formatErrorMessage(error) };
+  }
+}
+
+/**
  * Creates a Telegram package.
  */
 export async function createTelegramPackageAction(input: {
