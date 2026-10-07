@@ -556,17 +556,17 @@ a:focus-visible {
 }
 
 .gallery-dialog {
-  width: min(1240px, 100%);
+  width: min(1640px, 96%);
   min-height: 100vh;
   margin: 0 auto;
-  padding: clamp(28px, 5vw, 64px) clamp(20px, 7vw, 96px);
+  padding: clamp(24px, 4vw, 56px) clamp(16px, 3.5vw, 44px);
   background: var(--paper);
   color: var(--ink);
   animation: gallery-enter 360ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 .gallery-header {
-  margin-bottom: clamp(32px, 6vw, 70px);
+  margin-bottom: clamp(24px, 4vw, 44px);
 }
 
 .gallery-close {
@@ -574,7 +574,7 @@ a:focus-visible {
   min-height: 38px;
   align-items: center;
   gap: 12px;
-  margin: 0 0 clamp(42px, 8vw, 92px);
+  margin: 0 0 clamp(24px, 4vw, 48px);
   padding: 0;
   border: 0;
   background: transparent;
@@ -621,9 +621,10 @@ a:focus-visible {
   color: var(--accent);
 }
 
+/* Pinterest-Style Masonry Grid */
 .gallery-photos {
-  columns: 3 340px;
-  column-gap: clamp(14px, 2vw, 24px);
+  columns: 5 240px;
+  column-gap: 16px;
   width: 100%;
 }
 
@@ -632,73 +633,110 @@ a:focus-visible {
   display: block;
   width: 100%;
   break-inside: avoid;
-  margin-bottom: clamp(14px, 2vw, 24px);
+  margin-bottom: 16px;
   border: 0;
   padding: 0;
-  background: var(--contact-bg, #1a1918);
-  border-radius: 4px;
+  background: #ecebe8;
+  border-radius: 16px;
   overflow: hidden;
   cursor: zoom-in;
   text-align: left;
+  transition: transform 0.22s cubic-bezier(0.2, 0, 0.2, 1), box-shadow 0.22s ease;
+}
+
+[data-theme="dark"] .gallery-photo {
+  background: #252429;
+}
+
+.gallery-photo:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
 }
 
 .gallery-photo img {
   display: block;
   width: 100%;
   height: auto;
-  object-fit: contain;
-  transition: transform 320ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  border-radius: 16px;
+  object-fit: cover;
+  transition: filter 0.2s ease;
 }
 
 .gallery-photo:hover img {
-  transform: scale(1.02);
+  filter: brightness(0.94);
 }
 
-.gallery-photo::after {
+/* Pinterest Pin Tag */
+.gallery-pin-tag {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  border-radius: 999px;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+.gallery-pin-tag.is-cover {
+  background: #e60023; /* Pinterest Iconic Red */
+  color: #ffffff;
+}
+
+/* Pinterest Hover Scrim & Zoom Button */
+.gallery-photo-overlay {
   position: absolute;
   inset: 0;
-  background: rgb(0 0 0 / 0%);
-  content: "";
-  pointer-events: none;
-  transition: background 180ms ease;
-}
-
-.gallery-photo:hover::after {
-  background: rgb(0 0 0 / 12%);
-}
-
-.gallery-photo-badge {
-  position: absolute;
-  z-index: 2;
-  bottom: 12px;
-  left: 14px;
-  color: white;
-  font-size: 8px;
-  letter-spacing: 1px;
-  font-weight: 600;
-  text-shadow: 0 1px 4px rgb(0 0 0 / 80%);
-  background: rgb(0 0 0 / 55%);
-  backdrop-filter: blur(4px);
-  padding: 3px 8px;
-  border-radius: 3px;
-}
-
-/* Cover photo featured across top */
-.gallery-photo-cover {
-  column-span: all;
-  margin-bottom: clamp(20px, 3vw, 36px);
+  background: rgba(0, 0, 0, 0);
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--contact-bg, #1a1918);
-  max-height: 82vh;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 12px;
+  border-radius: 16px;
+  transition: background 0.2s ease;
+  pointer-events: none;
+  z-index: 1;
 }
 
-.gallery-photo-cover img {
-  width: auto;
-  max-width: 100%;
-  max-height: 82vh;
-  margin: 0 auto;
+.gallery-photo:hover .gallery-photo-overlay {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.gallery-photo-zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 13px;
+  background: #ffffff;
+  color: #111111;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.gallery-photo:hover .gallery-photo-zoom-btn {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+[data-theme="dark"] .gallery-photo-zoom-btn {
+  background: #252429;
+  color: #f2f0ed;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
 }
 
 .gallery-viewer {
@@ -712,12 +750,12 @@ a:focus-visible {
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: min(60vh, 500px);
+  min-height: min(65vh, 560px);
   max-height: 84vh;
   background: var(--contact-bg, #141316);
-  border-radius: 6px;
+  border-radius: 16px;
   overflow: hidden;
-  padding: clamp(10px, 2vw, 24px);
+  padding: clamp(12px, 2vw, 28px);
 }
 
 .gallery-viewer-img {
@@ -725,9 +763,10 @@ a:focus-visible {
   max-height: 80vh;
   width: auto;
   height: auto;
+  border-radius: 12px;
   object-fit: contain;
   display: block;
-  box-shadow: 0 14px 45px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.5);
 }
 
 .gallery-viewer-footer {
@@ -2445,12 +2484,12 @@ a:focus-visible {
   }
 
   .gallery-dialog {
-    width: min(1440px, 94%);
+    width: min(1720px, 96%);
   }
 
   .gallery-photos {
-    columns: 3 380px;
-    column-gap: 24px;
+    columns: 5 280px;
+    column-gap: 16px;
   }
 
   .admin-content {
@@ -2730,29 +2769,35 @@ a:focus-visible {
   }
 
   .gallery-photos {
-    columns: 1;
-    column-gap: 14px;
+    columns: 2 160px;
+    column-gap: 12px;
   }
 
   .gallery-photo {
-    margin-bottom: 14px;
+    margin-bottom: 12px;
+    border-radius: 12px;
   }
 
-  .gallery-photo-cover {
-    max-height: 65vh;
+  .gallery-photo img {
+    border-radius: 12px;
   }
 
-  .gallery-photo-cover img {
-    max-height: 65vh;
+  .gallery-pin-tag {
+    top: 6px;
+    left: 6px;
+    padding: 3px 8px;
+    font-size: 8px;
   }
 
   .gallery-viewer-stage {
     min-height: 48vh;
     max-height: 75vh;
+    border-radius: 12px;
   }
 
   .gallery-viewer-img {
     max-height: 72vh;
+    border-radius: 8px;
   }
 
   .gallery-viewer-footer {
@@ -3240,6 +3285,20 @@ a:focus-visible {
 
   .gallery-viewer-stage {
     min-height: 38vh;
+  }
+
+  .gallery-photos {
+    columns: 2 130px;
+    column-gap: 8px;
+  }
+
+  .gallery-photo {
+    margin-bottom: 8px;
+    border-radius: 10px;
+  }
+
+  .gallery-photo img {
+    border-radius: 10px;
   }
 
   .gallery-viewer-footer {
