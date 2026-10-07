@@ -20,7 +20,7 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 ## Telegram package bot
 
-The Telegram webhook is handled by `app/api/telegram/route.ts`. Manage the bot's package list, prices, and details from the authorized admin panel at `/admin`.
+The Telegram webhook is handled by `app/api/telegram/route.ts`. Manage the bot's package list, prices, and details from the authorized admin panel.
 
 Set these environment variables locally and in your Vercel project:
 
@@ -40,8 +40,6 @@ UPSTASH_REDIS_REST_TOKEN=
 `SUPABASE_SERVICE_ROLE_KEY` is required for secure image uploads and must be configured only as a server-side environment variable in Vercel and local development. Never prefix it with `NEXT_PUBLIC_` or expose it to browser code.
 
 The Telegram webhook and admin image upload endpoint are rate limited to 120 and 30 requests per IP per minute. Without Redis, a bounded per-instance limiter is used, which works without extra accounts but is not shared across Vercel instances. For a shared distributed limit, optionally configure `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` as server-only variables. Vercel Firewall rate-limit rules are another option for platform-level protection.
-
-To enable package editing and load the bot's package list from Supabase, first apply the portfolio admin migration and then run [`supabase/migrations/20261007000000_telegram_packages.sql`](./supabase/migrations/20261007000000_telegram_packages.sql) in the same Supabase project's SQL Editor. Sign in at `/admin` with an authorized admin account to add, edit, or delete packages.
 
 After deploying, register the webhook once with Telegram, substituting the actual values:
 
