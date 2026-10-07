@@ -25,10 +25,17 @@ import {
   type AdminHeroBackground,
 } from "@/app/actions/admin";
 
+import ImageEditorModal from "./image-editor-modal";
+
 type Photo = AdminStoryPhoto;
 type Story = AdminStory;
 type PackageDraft = Pick<TelegramPackage, "title" | "price" | "details">;
 type HeroBackground = AdminHeroBackground;
+
+type EditorTarget =
+  | { purpose: "hero-background"; files: File[] }
+  | { purpose: "story-photo"; story: Story; files: File[] }
+  | null;
 
 type Confirmation = {
   title: string;
@@ -70,6 +77,9 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
 
   const [copyStatus, setCopyStatus] = useState("");
+  const [editorTarget, setEditorTarget] = useState<EditorTarget>(null);
+  const [dragOverStoryId, setDragOverStoryId] = useState<string | null>(null);
+  const [dragOverHero, setDragOverHero] = useState(false);
 
   useEffect(() => {
     if (!confirmation && !error) return;
@@ -472,9 +482,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     }
   }
 
-  async function handleUpload(story: Story, event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
+  async function handleIncomingStoryFiles(story: Story, files: File[]) {
     if (files.length === 0) return;
 
     const invalidFile = await Promise.all(
@@ -494,14 +502,18 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       return;
     }
 
-    const photoLabel = files.length === 1 ? "photo" : `${files.length} photos`;
-    setConfirmation({
-      title: files.length === 1 ? "Add this file?" : "Add these files?",
-      description: `Add ${photoLabel} to “${story.title}”?`,
-      confirmLabel: "Add",
-      destructive: false,
-      onConfirm: () => void uploadPhotos(story, files),
+    setEditorTarget({
+      purpose: "story-photo",
+      story,
+      files,
     });
+  }
+
+  async function handleUpload(story: Story, event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0) return;
+    await handleIncomingStoryFiles(story, files);
   }
 
   async function uploadPhotos(story: Story, files: File[]) {
@@ -549,9 +561,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     setBusy("");
   }
 
-  async function handleHeroBackgroundUpload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
+  async function handleIncomingHeroFile(file: File) {
     if (!file) return;
 
     if (
@@ -565,13 +575,17 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       return;
     }
 
-    setConfirmation({
-      title: "Change this background photo?",
-      description: "This photo will replace the current homepage background.",
-      confirmLabel: "Change photo",
-      destructive: false,
-      onConfirm: () => void saveHeroBackground(file),
+    setEditorTarget({
+      purpose: "hero-background",
+      files: [file],
     });
+  }
+
+  async function handleHeroBackgroundUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    await handleIncomingHeroFile(file);
   }
 
   async function saveHeroBackground(file: File) {
@@ -786,13 +800,38 @@ on conflict (user_id) do nothing;`}</code></pre>
               <h2 id="background-heading">Background photo</h2>
               <p className="admin-intro">Choose the image shown behind the homepage introduction.</p>
             </div>
-            <div className="admin-background-preview">
+            <div
+              className={`admin-background-preview admin-hero-dropzone ${dragOverHero ? "is-drag-over" : ""} ${busy === "hero-background" ? "is-busy" : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragOverHero(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                setDragOverHero(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragOverHero(false);
+                if (busy === "hero-background") return;
+                const file = e.dataTransfer.files?.[0];
+                if (file) void handleIncomingHeroFile(file);
+              }}
+            >
               {heroBackground?.value ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={heroBackground.value} alt="Current homepage background" />
               ) : (
                 <div className="admin-background-placeholder">DEFAULT PHOTO</div>
               )}
+              <div className="admin-hero-drop-hint" aria-hidden="true">
+                <span className="admin-hero-drop-icon">🖼️</span>
+                <span>Drop photo here to edit &amp; replace hero</span>
+              </div>
               <label className="admin-upload-button">
                 <span>{busy === "hero-background" ? "UPLOADING PHOTO…" : "＋ CHANGE BACKGROUND PHOTO"}</span>
                 <input
@@ -990,16 +1029,54 @@ on conflict (user_id) do nothing;`}</code></pre>
                     ))}
                     {story.story_photos.length === 0 && <p className="admin-empty-photos">No photos in this story yet.</p>}
                   </div>
-                  <label className="admin-upload-button">
-                    <span>{busy === `upload:${story.id}` ? "UPLOADING PHOTOS…" : "＋ ADD PHOTOS"}</span>
-                    <input
-                      type="file"
-                      accept="image/*,.heic,.heif"
-                      multiple
-                      disabled={busy === `upload:${story.id}`}
-                      onChange={(event) => void handleUpload(story, event)}
-                    />
-                  </label>
+                  <div
+                    className={`admin-dropzone ${dragOverStoryId === story.id ? "is-drag-over" : ""} ${busy === `upload:${story.id}` ? "is-busy" : ""}`}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDragOverStoryId(story.id);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                      setDragOverStoryId(null);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDragOverStoryId(null);
+                      if (busy === `upload:${story.id}`) return;
+                      const files = Array.from(e.dataTransfer.files ?? []);
+                      if (files.length > 0) void handleIncomingStoryFiles(story, files);
+                    }}
+                  >
+                    <div className="admin-dropzone-inner">
+                      <div className="admin-dropzone-icon" aria-hidden="true">
+                        ☁️
+                      </div>
+                      <div className="admin-dropzone-info">
+                        <p className="admin-dropzone-title">
+                          {dragOverStoryId === story.id
+                            ? "Drop photos here to edit & add"
+                            : "Drag & drop photos here, or click to browse"}
+                        </p>
+                        <p className="admin-dropzone-subtitle">
+                          Supports all formats up to 20 MB · Multiple photos allowed
+                        </p>
+                      </div>
+                      <label className="admin-upload-button admin-dropzone-browse">
+                        <span>{busy === `upload:${story.id}` ? "UPLOADING PHOTOS…" : "＋ ADD PHOTOS"}</span>
+                        <input
+                          type="file"
+                          accept="image/*,.heic,.heif"
+                          multiple
+                          disabled={busy === `upload:${story.id}`}
+                          onChange={(event) => void handleUpload(story, event)}
+                        />
+                      </label>
+                    </div>
+                  </div>
                 </article>
               );
             })}
@@ -1149,6 +1226,28 @@ on conflict (user_id) do nothing;`}</code></pre>
             </div>
           </section>
         </div>
+      )}
+      {editorTarget && (
+        <ImageEditorModal
+          files={editorTarget.files}
+          defaultAspectRatio={editorTarget.purpose === "hero-background" ? 16 / 9 : null}
+          title={
+            editorTarget.purpose === "hero-background"
+              ? "Edit Hero Background"
+              : `Edit Photos for "${editorTarget.story.title}"`
+          }
+          onCancel={() => setEditorTarget(null)}
+          onComplete={(editedFiles) => {
+            const target = editorTarget;
+            setEditorTarget(null);
+            if (target.purpose === "hero-background") {
+              const file = editedFiles[0];
+              if (file) void saveHeroBackground(file);
+            } else if (target.purpose === "story-photo") {
+              if (editedFiles.length > 0) void uploadPhotos(target.story, editedFiles);
+            }
+          }}
+        />
       )}
     </main>
   );

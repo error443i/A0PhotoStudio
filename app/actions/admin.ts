@@ -620,26 +620,28 @@ export async function uploadAdminImageAction(
 
     let extension = getExtensionForMime(contentType, file.name);
 
-    // If TIFF or other non-web format, convert using sharp to high-quality WebP
-    if (contentType === "image/tiff") {
+    // Backend image processing & compression with sharp:
+    // Auto-orient EXIF, constrain to 3840px (4K max for web portfolio), and compress to high-fidelity WebP
+    if (contentType !== "image/svg+xml" && contentType !== "image/x-icon") {
       try {
         const sharp = (await import("sharp")).default;
-        const converted = await sharp(bytes).webp({ quality: 90 }).toBuffer();
-        bytes = new Uint8Array(converted);
+        const isGif = contentType === "image/gif";
+        const processed = await sharp(bytes, { animated: isGif })
+          .rotate()
+          .resize({
+            width: 3840,
+            height: 3840,
+            fit: "inside",
+            withoutEnlargement: true,
+          })
+          .webp({ quality: 88, effort: 4 })
+          .toBuffer();
+
+        bytes = new Uint8Array(processed);
         contentType = "image/webp";
         extension = "webp";
-      } catch (e) {
-        console.warn("Could not convert TIFF with sharp, saving as original:", e);
-      }
-    } else if (contentType === "image/heic" || contentType === "image/heif") {
-      try {
-        const sharp = (await import("sharp")).default;
-        const converted = await sharp(bytes).webp({ quality: 90 }).toBuffer();
-        bytes = new Uint8Array(converted);
-        contentType = "image/webp";
-        extension = "webp";
-      } catch {
-        // If sharp does not support decoding this HEIC variant, save original bytes
+      } catch (procErr) {
+        console.warn("Sharp compression skipped, keeping original format:", procErr);
       }
     }
 
