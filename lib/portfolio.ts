@@ -178,3 +178,31 @@ export async function getFeaturedStories(): Promise<PortfolioProject[]> {
     return DEFAULT_FEATURED_STORIES;
   }
 }
+
+export const DEFAULT_PORTFOLIO_YEARS = "2025 — 2026";
+
+export async function getPortfolioYears(): Promise<string> {
+  if (isSupabaseTemporarilyUnavailable()) {
+    return DEFAULT_PORTFOLIO_YEARS;
+  }
+
+  try {
+    const supabase = createPublicSupabaseClient({ timeoutMs: 2500 });
+    const { data, error } = await supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "portfolio_years")
+      .maybeSingle();
+
+    if (error || !data?.value) {
+      return DEFAULT_PORTFOLIO_YEARS;
+    }
+
+    markSupabaseHealthy();
+    return data.value;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`Error loading portfolio years (${message}). Using default.`);
+    return DEFAULT_PORTFOLIO_YEARS;
+  }
+}

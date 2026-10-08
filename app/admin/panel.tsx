@@ -13,6 +13,8 @@ import {
   getAdminStoriesAction,
   getAdminHeroBackgroundAction,
   getAdminTelegramPackagesAction,
+  getAdminPortfolioYearsAction,
+  saveAdminPortfolioYearsAction,
   createStoryAction,
   saveStoryAction,
   deleteStoryAction,
@@ -37,6 +39,7 @@ type HeroBackground = AdminHeroBackground;
 type EditorTarget =
   | { purpose: "hero-background"; files: File[] }
   | { purpose: "story-photo"; story: Story; files: File[] }
+  | { purpose: "set-cover"; story: Story; files: File[]; replacePhotoId?: string }
   | null;
 
 type Confirmation = {
@@ -79,6 +82,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   const [sessionExpiresAt, setSessionExpiresAt] = useState<number | null>(null);
 
   const [copyStatus, setCopyStatus] = useState("");
+  const [portfolioYears, setPortfolioYears] = useState("2025 — 2026");
   const [editorTarget, setEditorTarget] = useState<EditorTarget>(null);
   const [dragOverStoryId, setDragOverStoryId] = useState<string | null>(null);
   const [dragOverHero, setDragOverHero] = useState(false);
@@ -120,6 +124,13 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       throw new Error(result.error || "Unable to load homepage background.");
     }
     setHeroBackground(result.heroBackground ?? null);
+  }, []);
+
+  const loadPortfolioYears = useCallback(async () => {
+    const result = await getAdminPortfolioYearsAction();
+    if (result.success && result.years) {
+      setPortfolioYears(result.years);
+    }
   }, []);
 
   const loadTelegramPackages = useCallback(async () => {
@@ -166,6 +177,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       } else {
         await loadStories();
         await loadHeroBackground();
+        await loadPortfolioYears();
       }
       setPanelState("admin");
 
@@ -178,7 +190,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       setError(`Unable to load content: ${errorMessage(loadError)}`);
       setPanelState("admin");
     }
-  }, [section, loadStories, loadHeroBackground, loadTelegramPackages]);
+  }, [section, loadStories, loadHeroBackground, loadPortfolioYears, loadTelegramPackages]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -647,6 +659,118 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     }
   }
 
+  async function handleSavePortfolioYears() {
+    setError("");
+    setMessage("");
+    setBusy("save-portfolio-years");
+
+    try {
+      const res = await saveAdminPortfolioYearsAction(portfolioYears);
+      if (!res.success) throw new Error(res.error || "Unable to save year label.");
+      setMessage("Featured stories year label updated.");
+    } catch (err) {
+      setError(`Unable to save year: ${errorMessage(err)}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function photoUrlToFile(url: string, filename: string): Promise<File> {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Could not load image.");
+    const blob = await res.blob();
+    return new File([blob], filename, { type: blob.type || "image/jpeg" });
+  }
+
+  async function handleEditCoverModal(story: Story, photo: Photo) {
+    setError("");
+    setMessage("");
+    setBusy(`cover-editor:${photo.id}`);
+
+    try {
+      const file = await photoUrlToFile(photo.image_url, `cover-${story.id}.jpg`);
+      setEditorTarget({
+        purpose: "set-cover",
+        story,
+        files: [file],
+        replacePhotoId: photo.id,
+      });
+    } catch (err) {
+      setError(`Unable to open image editor for cover: ${errorMessage(err)}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleUploadCoverModal(story: Story, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (
+      file.size > MAX_IMAGE_SIZE_BYTES ||
+      !detectImageMimeType(
+        new Uint8Array(await file.slice(0, 512).arrayBuffer()),
+        file.name || file.type,
+      )
+    ) {
+      setError(`${file.name} must be a valid image file no larger than 20 MB.`);
+      return;
+    }
+
+    setEditorTarget({
+      purpose: "set-cover",
+      story,
+      files: [file],
+    });
+  }
+
+  async function handleCropAndSetCover(story: Story, photo: Photo) {
+    setError("");
+    setMessage("");
+    setBusy(`crop-cover:${photo.id}`);
+
+    try {
+      const file = await photoUrlToFile(photo.image_url, `cover-${photo.id}.jpg`);
+      setEditorTarget({
+        purpose: "set-cover",
+        story,
+        files: [file],
+      });
+    } catch (err) {
+      setError(`Unable to open image editor: ${errorMessage(err)}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveEditedCover(story: Story, file: File, replacePhotoId?: string) {
+    setError("");
+    setMessage("");
+    setBusy(`save-cover:${story.id}`);
+
+    try {
+      const formData = new FormData();
+      formData.set("purpose", "story-photo");
+      formData.set("storyId", story.id);
+      formData.set("file", file);
+      formData.set("setAsCover", "true");
+      if (replacePhotoId) {
+        formData.set("replacePhotoId", replacePhotoId);
+      }
+
+      const res = await uploadAdminImageAction(formData);
+      if (!res.success) throw new Error(res.error || "Failed to save cover photo.");
+
+      setMessage(`Cover photo for “${story.title}” updated.`);
+      await loadStories();
+    } catch (err) {
+      setError(`Unable to save cover photo: ${errorMessage(err)}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function handleRemovePhoto(story: Story, photo: Photo) {
     setConfirmation({
       title: "Remove this file?",
@@ -1005,7 +1129,32 @@ on conflict (user_id) do nothing;`}</code></pre>
             </div>
           </section>}
 
-          {section === "collections" && <><form className="admin-create-form" onSubmit={handleCreateStory}>
+          {section === "collections" && <>
+            <div className="admin-portfolio-year-form">
+              <div>
+                <span className="section-index">PORTFOLIO · DISPLAY YEAR</span>
+                <h3 style={{ margin: "6px 0 4px", fontSize: "18px", fontFamily: "Georgia, serif", fontWeight: 400 }}>Featured stories year label</h3>
+                <p className="admin-intro" style={{ margin: 0 }}>The year label shown above the portfolio gallery on the homepage (e.g. 2025 — 2026).</p>
+              </div>
+              <div className="admin-portfolio-year-fields">
+                <input
+                  type="text"
+                  value={portfolioYears}
+                  onChange={(event) => setPortfolioYears(event.target.value)}
+                  placeholder="2025 — 2026"
+                />
+                <button
+                  className="admin-secondary-button"
+                  type="button"
+                  disabled={busy === "save-portfolio-years"}
+                  onClick={() => void handleSavePortfolioYears()}
+                >
+                  {busy === "save-portfolio-years" ? "SAVING…" : "SAVE YEAR"}
+                </button>
+              </div>
+            </div>
+
+            <form className="admin-create-form" onSubmit={handleCreateStory}>
             <h2>Add a featured story</h2>
             <div className="admin-create-fields">
               <label>Story title<input value={newStory.title} onChange={(event) => setNewStory({ ...newStory, title: event.target.value })} required /></label>
@@ -1038,6 +1187,19 @@ on conflict (user_id) do nothing;`}</code></pre>
                     >
                       {busy === `save:${story.id}` ? "SAVING…" : "SAVE DETAILS"}
                     </button>
+                    <label
+                      className="admin-secondary-button admin-cover-upload-label"
+                      title="Upload an image and crop/edit it in image editor to set as cover"
+                    >
+                      <input
+                        type="file"
+                        accept="image/*,.heic,.heif"
+                        style={{ display: "none" }}
+                        disabled={busy.length > 0}
+                        onChange={(event) => void handleUploadCoverModal(story, event)}
+                      />
+                      ✂ SET NEW COVER
+                    </label>
                     <button
                       className="admin-story-delete-button"
                       type="button"
@@ -1071,32 +1233,69 @@ on conflict (user_id) do nothing;`}</code></pre>
                         </div>
                         <div className="admin-photo-actions">
                           {photoIndex === 0 ? (
-                            <span
-                              className="admin-photo-cover-label"
-                              title="This photo is currently set as the collection cover photo"
-                            >
-                              ★ Cover Photo
-                            </span>
+                            <>
+                              <div className="admin-photo-cover-status">
+                                <span
+                                  className="admin-photo-cover-label"
+                                  title="This photo is currently set as the collection cover photo"
+                                >
+                                  ★ Cover Photo
+                                </span>
+                              </div>
+                              <div className="admin-photo-button-row">
+                                <button
+                                  type="button"
+                                  className="admin-photo-edit-cover"
+                                  disabled={busy.length > 0}
+                                  onClick={() => void handleEditCoverModal(story, photo)}
+                                  title="Open in Image Editor to crop or adjust cover photo"
+                                >
+                                  {busy === `cover-editor:${photo.id}` ? "LOADING…" : "✂ Edit Cover"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="admin-photo-remove"
+                                  disabled={busy.length > 0}
+                                  onClick={() => void handleRemovePhoto(story, photo)}
+                                  aria-label={`Remove photo ${photoIndex + 1} from ${story.title}`}
+                                >
+                                  {busy === `remove:${photo.id}` ? "REMOVING…" : "REMOVE"}
+                                </button>
+                              </div>
+                            </>
                           ) : (
-                            <button
-                              type="button"
-                              className="admin-photo-make-cover"
-                              disabled={busy === `cover:${photo.id}` || busy === `remove:${photo.id}`}
-                              onClick={() => void handleSetCoverPhoto(story, photo)}
-                              title="Set this photo as the cover photo for this collection"
-                            >
-                              {busy === `cover:${photo.id}` ? "SETTING…" : "★ Set as Cover"}
-                            </button>
+                            <>
+                              <div className="admin-photo-button-row">
+                                <button
+                                  type="button"
+                                  className="admin-photo-make-cover"
+                                  disabled={busy.length > 0}
+                                  onClick={() => void handleSetCoverPhoto(story, photo)}
+                                  title="Set this photo as the cover photo for this collection"
+                                >
+                                  {busy === `cover:${photo.id}` ? "SETTING…" : "★ Set Cover"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="admin-photo-edit-cover"
+                                  disabled={busy.length > 0}
+                                  onClick={() => void handleCropAndSetCover(story, photo)}
+                                  title="Crop and set as cover photo"
+                                >
+                                  {busy === `crop-cover:${photo.id}` ? "LOADING…" : "✂ Crop & Set"}
+                                </button>
+                              </div>
+                              <button
+                                type="button"
+                                className="admin-photo-remove admin-photo-remove-full"
+                                disabled={busy.length > 0}
+                                onClick={() => void handleRemovePhoto(story, photo)}
+                                aria-label={`Remove photo ${photoIndex + 1} from ${story.title}`}
+                              >
+                                {busy === `remove:${photo.id}` ? "REMOVING…" : "REMOVE"}
+                              </button>
+                            </>
                           )}
-                          <button
-                            type="button"
-                            className="admin-photo-remove"
-                            disabled={busy === `remove:${photo.id}` || busy === `cover:${photo.id}`}
-                            onClick={() => void handleRemovePhoto(story, photo)}
-                            aria-label={`Remove photo ${photoIndex + 1} from ${story.title}`}
-                          >
-                            {busy === `remove:${photo.id}` ? "REMOVING…" : "REMOVE"}
-                          </button>
                         </div>
                       </div>
                     ))}
@@ -1307,6 +1506,8 @@ on conflict (user_id) do nothing;`}</code></pre>
           title={
             editorTarget.purpose === "hero-background"
               ? "Edit Hero Background"
+              : editorTarget.purpose === "set-cover"
+              ? `Edit Cover Photo for "${editorTarget.story.title}"`
               : `Edit Photos for "${editorTarget.story.title}"`
           }
           onCancel={() => setEditorTarget(null)}
@@ -1318,6 +1519,9 @@ on conflict (user_id) do nothing;`}</code></pre>
               if (file) void saveHeroBackground(file);
             } else if (target.purpose === "story-photo") {
               if (editedFiles.length > 0) void uploadPhotos(target.story, editedFiles);
+            } else if (target.purpose === "set-cover") {
+              const file = editedFiles[0];
+              if (file) void saveEditedCover(target.story, file, target.replacePhotoId);
             }
           }}
         />

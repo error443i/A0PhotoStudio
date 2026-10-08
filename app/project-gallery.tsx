@@ -8,6 +8,7 @@ export default function ProjectGallery({ projects }: { projects: PortfolioProjec
   const [activeProject, setActiveProject] = useState<PortfolioProject | null>(null);
   const [activePhoto, setActivePhoto] = useState<number | null>(null);
   const [colCount, setColCount] = useState(4);
+  const [projectColCount, setProjectColCount] = useState(2);
 
   useEffect(() => {
     function updateColumns() {
@@ -17,12 +18,28 @@ export default function ProjectGallery({ projects }: { projects: PortfolioProjec
       else if (w < 1250) setColCount(3);
       else if (w < 1650) setColCount(4);
       else setColCount(5);
+
+      if (w < 768) setProjectColCount(1);
+      else if (w < 1400) setProjectColCount(2);
+      else setProjectColCount(3);
     }
 
     updateColumns();
     window.addEventListener("resize", updateColumns);
     return () => window.removeEventListener("resize", updateColumns);
   }, []);
+
+  const projectMasonryColumns = useMemo(() => {
+    const count = Math.max(1, Math.min(projectColCount, projects.length));
+    const cols: { project: PortfolioProject; index: number }[][] = Array.from(
+      { length: count },
+      () => [],
+    );
+    projects.forEach((project, index) => {
+      cols[index % count].push({ project, index });
+    });
+    return cols;
+  }, [projects, projectColCount]);
 
   const masonryColumns = useMemo(() => {
     if (!activeProject) return [];
@@ -74,40 +91,44 @@ export default function ProjectGallery({ projects }: { projects: PortfolioProjec
 
   return (
     <>
-      <div className="project-grid">
-        {projects.map((project, index) => (
-          <button
-            className="project-card"
-            key={project.id}
-            type="button"
-            data-reveal
-            onClick={() => {
-              setActiveProject(project);
-              setActivePhoto(null);
-            }}
-            aria-label={`View ${project.title} ${project.category} photo collection`}
-          >
-            <span
-              className="project-image"
-              role="img"
-              aria-label={`${project.category} photography: ${project.title}`}
-              style={
-                project.images[0]
-                  ? { backgroundImage: `url("${project.images[0]}")` }
-                  : undefined
-              }
-            >
-              <span className="project-number">0{index + 1}</span>
-              {/* <span className="project-open" aria-hidden="true">
-                <ArrowUpRightIcon size={16} />
-              </span> */}
-              <span className="project-details">
-                <span className="project-title">{project.title}</span>
-                <span className="project-meta">{project.category} <i>·</i> {project.year}</span>
-              </span>
-              <span className="project-photo-count">{project.images.length} PHOTOS</span>
-            </span>
-          </button>
+      <div className="project-masonry">
+        {projectMasonryColumns.map((colProjects, colIndex) => (
+          <div className="project-masonry-col" key={colIndex}>
+            {colProjects.map(({ project, index }) => (
+              <button
+                className="project-card"
+                key={project.id}
+                type="button"
+                data-reveal
+                onClick={() => {
+                  setActiveProject(project);
+                  setActivePhoto(null);
+                }}
+                aria-label={`View ${project.title} ${project.category} photo collection`}
+              >
+                <span className="project-image">
+                  {project.images[0] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={project.images[0]}
+                      alt={`${project.category} photography: ${project.title}`}
+                      loading="lazy"
+                    />
+                  ) : null}
+                  <span className="project-number">0{index + 1}</span>
+                  <span className="project-details">
+                    <span className="project-title">{project.title}</span>
+                    <span className="project-meta">
+                      {project.category} <i>·</i> {project.year}
+                    </span>
+                  </span>
+                  <span className="project-photo-count">
+                    {project.images.length} PHOTOS
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
         ))}
       </div>
 

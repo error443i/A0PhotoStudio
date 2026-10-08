@@ -1,15 +1,16 @@
 import ThemeToggle from "./theme-toggle";
 import ProjectGallery from "./project-gallery";
 import ScrollReveal from "./scroll-reveal";
-import { DEFAULT_HERO_BACKGROUND, getFeaturedStories, getHeroBackground } from "@/lib/portfolio";
+import { DEFAULT_HERO_BACKGROUND, getFeaturedStories, getHeroBackground, getPortfolioYears } from "@/lib/portfolio";
 import { ArrowUpRightIcon, ArrowDownRightIcon, ArrowDownIcon } from "./icons";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const [projects, heroBackground] = await Promise.all([
+  const [projects, heroBackground, portfolioYears] = await Promise.all([
     getFeaturedStories(),
     getHeroBackground(),
+    getPortfolioYears(),
   ]);
   const telegramBotUsername = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
   const telegramUrl = telegramBotUsername
@@ -63,7 +64,7 @@ export default async function Home() {
             <p data-reveal>A selection of recent work, gathered in good light.</p>
           </div>
           <span className="project-count" data-reveal>
-            2025 — 2026 <ArrowDownRightIcon size={12} />
+            {portfolioYears} <ArrowDownRightIcon size={12} />
           </span>
         </div>
         <ProjectGallery projects={projects} />

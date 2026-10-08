@@ -283,6 +283,77 @@ export async function getAdminHeroBackgroundAction(): Promise<{
 }
 
 /**
+ * Loads the current featured stories year label (e.g. 2025 — 2026).
+ */
+export async function getAdminPortfolioYearsAction(): Promise<{
+  success: boolean;
+  years?: string;
+  error?: string;
+  isSetupError?: boolean;
+}> {
+  try {
+    const authResult = await verifyAdminSession();
+    if (authResult.status !== "admin") {
+      return {
+        success: false,
+        error: "Administrator access required.",
+        isSetupError: authResult.status === "setup-error",
+      };
+    }
+
+    const { data, error } = await authResult.client
+      .from("site_settings")
+      .select("value")
+      .eq("key", "portfolio_years")
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return { success: true, years: data?.value || "2025 — 2026" };
+  } catch (error) {
+    const isSetup = isMissingSchemaTable(error);
+    return {
+      success: false,
+      error: formatErrorMessage(error),
+      isSetupError: isSetup,
+    };
+  }
+}
+
+/**
+ * Saves the featured stories year label (e.g. 2025 — 2026).
+ */
+export async function saveAdminPortfolioYearsAction(
+  years: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const authResult = await verifyAdminSession();
+    if (authResult.status !== "admin") {
+      throw new Error("Administrator access required.");
+    }
+
+    const trimmed = years.trim();
+    if (!trimmed) {
+      throw new Error("Portfolio year label cannot be empty.");
+    }
+
+    const adminClient = createAdminSupabaseClient();
+    const { error } = await adminClient.from("site_settings").upsert({
+      key: "portfolio_years",
+      value: trimmed,
+    });
+
+    if (error) throw error;
+
+    revalidatePath("/");
+    revalidatePath("/admin");
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: formatErrorMessage(error) };
+  }
+}
+
+/**
  * Loads Telegram packages for the administrator panel.
  */
 export async function getAdminTelegramPackagesAction(): Promise<{
@@ -639,7 +710,7 @@ export async function deleteTelegramPackageAction(
  */
 export async function uploadAdminImageAction(
   formData: FormData,
-): Promise<{ success: boolean; imageUrl?: string; error?: string }> {
+): Promise<{ success: boolean; imageUrl?: string; photoId?: string; error?: string }> {
   try {
     const authResult = await verifyAdminSession();
     if (authResult.status !== "admin") throw new Error("Administrator access required.");
@@ -647,6 +718,10 @@ export async function uploadAdminImageAction(
     const purpose = formData.get("purpose");
     const storyId = formData.get("storyId") ? String(formData.get("storyId")) : undefined;
     const file = formData.get("file");
+    const setAsCover = formData.get("setAsCover") === "true";
+    const replacePhotoId = formData.get("replacePhotoId")
+      ? String(formData.get("replacePhotoId"))
+      : undefined;
 
     if (purpose !== "story-photo" && purpose !== "hero-background") {
       throw new Error("Invalid image purpose.");
@@ -717,6 +792,7 @@ export async function uploadAdminImageAction(
       .getPublicUrl(storagePath);
 
     const publicUrl = publicUrlData.publicUrl;
+    let insertedPhotoId: string | undefined;
 
     if (purpose === "story-photo") {
       const { data: lastPhoto } = await adminClient
@@ -727,16 +803,65 @@ export async function uploadAdminImageAction(
         .limit(1)
         .maybeSingle();
 
-      const { error: insertError } = await adminClient.from("story_photos").insert({
-        story_id: storyId,
-        image_url: publicUrl,
-        storage_path: storagePath,
-        sort_order: (lastPhoto?.sort_order ?? 0) + 1,
-      });
+      const { data: insertedPhoto, error: insertError } = await adminClient
+        .from("story_photos")
+        .insert({
+          story_id: storyId,
+          image_url: publicUrl,
+          storage_path: storagePath,
+          sort_order: setAsCover ? 0 : (lastPhoto?.sort_order ?? 0) + 1,
+        })
+        .select("id")
+        .single();
 
       if (insertError) {
         await adminClient.storage.from("portfolio-photos").remove([storagePath]);
         throw new Error(`Unable to save photo details: ${insertError.message}`);
+      }
+
+      insertedPhotoId = insertedPhoto.id;
+
+      // If replacing a previous photo, delete the old photo
+      if (replacePhotoId && replacePhotoId !== insertedPhoto.id) {
+        const { data: oldPhoto } = await adminClient
+          .from("story_photos")
+          .select("storage_path")
+          .eq("id", replacePhotoId)
+          .maybeSingle();
+
+        await adminClient.from("story_photos").delete().eq("id", replacePhotoId);
+        if (oldPhoto?.storage_path) {
+          await adminClient.storage
+            .from("portfolio-photos")
+            .remove([oldPhoto.storage_path])
+            .catch(() => {});
+        }
+      }
+
+      // If setAsCover is true, reorder photos so new photo is sort_order = 1
+      if (setAsCover) {
+        const { data: allPhotos } = await adminClient
+          .from("story_photos")
+          .select("id, sort_order")
+          .eq("story_id", storyId)
+          .order("sort_order");
+
+        const photosList = (allPhotos ?? []) as { id: string; sort_order: number }[];
+        if (photosList.length > 0) {
+          const target = photosList.find((p) => p.id === insertedPhoto.id);
+          const others = photosList.filter((p) => p.id !== insertedPhoto.id);
+          const reordered = target ? [target, ...others] : photosList;
+          for (let i = 0; i < reordered.length; i++) {
+            const p = reordered[i];
+            const newOrder = i + 1;
+            if (p.sort_order !== newOrder) {
+              await adminClient
+                .from("story_photos")
+                .update({ sort_order: newOrder })
+                .eq("id", p.id);
+            }
+          }
+        }
       }
     } else {
       const { data: previousSetting } = await adminClient
@@ -768,7 +893,7 @@ export async function uploadAdminImageAction(
     revalidatePath("/admin");
 
     const proxiedUrl = toProxiedImageUrl(publicUrl) ?? publicUrl;
-    return { success: true, imageUrl: proxiedUrl };
+    return { success: true, imageUrl: proxiedUrl, photoId: insertedPhotoId };
   } catch (error) {
     return { success: false, error: formatErrorMessage(error) };
   }
