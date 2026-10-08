@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import { ArrowRightIcon } from "../icons";
 
 export type ImageEditorModalProps = {
   files: File[];
@@ -16,12 +17,12 @@ type AspectPreset = {
 };
 
 const ASPECT_PRESETS: AspectPreset[] = [
-  { label: "Free", value: null },
+  { label: "Original", value: "original" },
+  { label: "Free Crop", value: null },
   { label: "16:9 Landscape", value: 16 / 9 },
   { label: "4:3 Standard", value: 4 / 3 },
   { label: "1:1 Square", value: 1 / 1 },
   { label: "4:5 Portrait", value: 4 / 5 },
-  { label: "Original", value: "original" },
 ];
 
 type DragHandle =
@@ -49,8 +50,8 @@ function calculateInitialCrop(
   nativeH: number,
   rot: 0 | 90 | 180 | 270,
 ): CropRect {
-  if (ratioValue === null) {
-    return { x: 5, y: 5, width: 90, height: 90 };
+  if (ratioValue === null || ratioValue === "original") {
+    return { x: 0, y: 0, width: 100, height: 100 };
   }
 
   const isRotated90 = rot === 90 || rot === 270;
@@ -58,22 +59,22 @@ function calculateInitialCrop(
   const effectiveH = isRotated90 ? nativeW : nativeH;
 
   if (!effectiveW || !effectiveH) {
-    return { x: 5, y: 5, width: 90, height: 90 };
+    return { x: 0, y: 0, width: 100, height: 100 };
   }
 
-  const targetRatio = ratioValue === "original" ? effectiveW / effectiveH : ratioValue;
+  const targetRatio = ratioValue;
   const currentRatio = effectiveW / effectiveH;
 
-  let newW = 90;
-  let newH = 90;
+  let newW = 100;
+  let newH = 100;
 
   if (currentRatio > targetRatio) {
     // Image is wider than target crop
-    newH = 90;
+    newH = 100;
     newW = (newH * targetRatio) / currentRatio;
   } else {
     // Image is taller than target crop
-    newW = 90;
+    newW = 100;
     newH = (newW * currentRatio) / targetRatio;
   }
 
@@ -81,10 +82,10 @@ function calculateInitialCrop(
   const newY = (100 - newH) / 2;
 
   return {
-    x: Math.max(0, newX),
-    y: Math.max(0, newY),
-    width: Math.min(100, newW),
-    height: Math.min(100, newH),
+    x: Math.max(0, Math.min(100, newX)),
+    y: Math.max(0, Math.min(100, newY)),
+    width: Math.max(1, Math.min(100, newW)),
+    height: Math.max(1, Math.min(100, newH)),
   };
 }
 
@@ -129,8 +130,8 @@ function SinglePhotoEditor({
   const [rotation, setRotation] = useState<0 | 90 | 180 | 270>(0);
   const [flipH, setFlipH] = useState(false);
   const [flipV, setFlipV] = useState(false);
-  const [selectedRatio, setSelectedRatio] = useState<number | null | "original">(defaultAspectRatio);
-  const [crop, setCrop] = useState<CropRect>({ x: 5, y: 5, width: 90, height: 90 });
+  const [selectedRatio, setSelectedRatio] = useState<number | null | "original">(defaultAspectRatio ?? "original");
+  const [crop, setCrop] = useState<CropRect>({ x: 0, y: 0, width: 100, height: 100 });
   const [isExporting, setIsExporting] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -147,7 +148,7 @@ function SinglePhotoEditor({
     handle: null,
     startX: 0,
     startY: 0,
-    startCrop: { x: 5, y: 5, width: 90, height: 90 },
+    startCrop: { x: 0, y: 0, width: 100, height: 100 },
     containerWidth: 1,
     containerHeight: 1,
   });
@@ -161,12 +162,16 @@ function SinglePhotoEditor({
     if (defaultAspectRatio !== null) {
       setCrop(calculateInitialCrop(defaultAspectRatio, nw, nh, 0));
     } else {
-      setCrop({ x: 5, y: 5, width: 90, height: 90 });
+      setCrop({ x: 0, y: 0, width: 100, height: 100 });
     }
   }
 
   function applyAspectRatio(ratioValue: number | null | "original") {
     setSelectedRatio(ratioValue);
+    if (ratioValue === "original" || ratioValue === null) {
+      setCrop({ x: 0, y: 0, width: 100, height: 100 });
+      return;
+    }
     const nextCrop = calculateInitialCrop(
       ratioValue,
       naturalDimensions.width,
@@ -196,11 +201,12 @@ function SinglePhotoEditor({
     setRotation(0);
     setFlipH(false);
     setFlipV(false);
-    setSelectedRatio(defaultAspectRatio);
+    const initialRatio = defaultAspectRatio ?? "original";
+    setSelectedRatio(initialRatio);
     if (defaultAspectRatio !== null) {
       setCrop(calculateInitialCrop(defaultAspectRatio, naturalDimensions.width, naturalDimensions.height, 0));
     } else {
-      setCrop({ x: 5, y: 5, width: 90, height: 90 });
+      setCrop({ x: 0, y: 0, width: 100, height: 100 });
     }
   }
 
@@ -335,17 +341,20 @@ function SinglePhotoEditor({
 
   async function renderEditedImage(): Promise<File> {
     return new Promise((resolve, reject) => {
-      if (!imageRef.current || !file) {
+      const sourceImg = imageRef.current;
+      if (!sourceImg || !file) {
         reject(new Error("Image not ready for processing"));
         return;
       }
 
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
+      function drawAndExport(imgElement: HTMLImageElement) {
         try {
-          const natW = img.naturalWidth;
-          const natH = img.naturalHeight;
+          const natW = imgElement.naturalWidth;
+          const natH = imgElement.naturalHeight;
+          if (!natW || !natH) {
+            reject(new Error("Image dimensions are invalid"));
+            return;
+          }
 
           const isRotated90 = rotation === 90 || rotation === 270;
           const rotatedW = isRotated90 ? natH : natW;
@@ -365,7 +374,7 @@ function SinglePhotoEditor({
           rotCtx.translate(rotatedW / 2, rotatedH / 2);
           rotCtx.rotate((rotation * Math.PI) / 180);
           rotCtx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
-          rotCtx.drawImage(img, -natW / 2, -natH / 2);
+          rotCtx.drawImage(imgElement, -natW / 2, -natH / 2);
           rotCtx.restore();
 
           const cropX = Math.round((crop.x / 100) * rotatedW);
@@ -414,14 +423,37 @@ function SinglePhotoEditor({
         } catch (err) {
           reject(err);
         }
-      };
+      }
 
-      img.onerror = () => reject(new Error("Failed to load source image for rendering"));
-      img.src = imageUrl;
+      if (sourceImg.complete && sourceImg.naturalWidth > 0) {
+        drawAndExport(sourceImg);
+      } else {
+        const img = new Image();
+        // NEVER set crossOrigin on blob: URLs!
+        img.onload = () => drawAndExport(img);
+        img.onerror = () => reject(new Error("Failed to load source image for rendering"));
+        img.src = imageUrl;
+      }
     });
   }
 
   async function handleApplyCurrent() {
+    // If the image is untouched (0 rotation, no flips, full 100% crop),
+    // bypass canvas re-export to preserve 100% camera fidelity, metadata, and exact original resolution!
+    const isUntouched =
+      rotation === 0 &&
+      !flipH &&
+      !flipV &&
+      crop.x <= 0.05 &&
+      crop.y <= 0.05 &&
+      crop.width >= 99.9 &&
+      crop.height >= 99.9;
+
+    if (isUntouched) {
+      onApply(file);
+      return;
+    }
+
     setIsExporting(true);
     try {
       const fileToSave = await renderEditedImage();
@@ -446,14 +478,31 @@ function SinglePhotoEditor({
             </p>
           )}
         </div>
-        <button
-          className="image-editor-close"
-          type="button"
-          aria-label="Cancel editing"
-          onClick={onCancel}
-        >
-          ×
-        </button>
+        <div className="image-editor-header-actions">
+          <button
+            type="button"
+            className="editor-header-apply-btn"
+            onClick={() => void handleApplyCurrent()}
+            disabled={isExporting}
+            title="Upload photo"
+          >
+            {isExporting ? (
+              "Processing…"
+            ) : isMultiple && currentIndex + 1 < totalCount ? (
+              <>Save &amp; Next Photo <ArrowRightIcon size={12} /></>
+            ) : (
+              "✓ Apply & Upload"
+            )}
+          </button>
+          <button
+            className="image-editor-close"
+            type="button"
+            aria-label="Cancel editing"
+            onClick={onCancel}
+          >
+            ×
+          </button>
+        </div>
       </header>
 
       {/* Workspace */}
@@ -639,7 +688,7 @@ function SinglePhotoEditor({
             {isExporting ? (
               "Processing…"
             ) : isMultiple && currentIndex + 1 < totalCount ? (
-              "Save & Next Photo →"
+              <>Save &amp; Next Photo <ArrowRightIcon size={12} /></>
             ) : (
               "Apply & Upload Photo"
             )}

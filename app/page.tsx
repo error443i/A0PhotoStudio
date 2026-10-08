@@ -2,6 +2,7 @@ import ThemeToggle from "./theme-toggle";
 import ProjectGallery from "./project-gallery";
 import ScrollReveal from "./scroll-reveal";
 import { DEFAULT_HERO_BACKGROUND, getFeaturedStories, getHeroBackground } from "@/lib/portfolio";
+import { ArrowUpRightIcon, ArrowDownRightIcon, ArrowDownIcon } from "./icons";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ export default async function Home() {
           <a href="#contact" data-reveal>CONTACT</a>
         </nav>
         <a className="mobile-menu" href="#work" aria-label="Explore portfolio" data-reveal>
-          EXPLORE <span aria-hidden="true">↓</span>
+          EXPLORE <ArrowDownIcon size={10} />
         </a>
         <ThemeToggle />
       </header>
@@ -50,7 +51,9 @@ export default async function Home() {
           </p>
           <a className="scroll-cue" href="#work" data-reveal="load">
             <span>SCROLL TO EXPLORE</span>
-            <span className="scroll-arrow" aria-hidden="true">↓</span>
+            <span className="scroll-arrow" aria-hidden="true">
+              <ArrowDownIcon size={12} />
+            </span>
           </a>
         </div>
       </section>
@@ -62,11 +65,13 @@ export default async function Home() {
             <h2 data-reveal>Featured <em>stories.</em></h2>
             <p data-reveal>A selection of recent work, gathered in good light.</p>
           </div>
-          <span className="project-count" data-reveal>2025 — 2026 <span aria-hidden="true">↘</span></span>
+          <span className="project-count" data-reveal>
+            2025 — 2026 <ArrowDownRightIcon size={12} />
+          </span>
         </div>
         <ProjectGallery projects={projects} />
         <a className="view-all-link" href={telegramUrl} data-reveal>
-          HAVE A STORY IN MIND? <span aria-hidden="true">↗</span>
+          HAVE A STORY IN MIND? <ArrowUpRightIcon size={11} />
         </a>
       </section>
 
@@ -86,7 +91,7 @@ export default async function Home() {
             around you. My work is made to feel like being there all over again.
           </p>
           <a className="text-link" href={telegramUrl} data-reveal>
-            LET&apos;S MAKE SOMETHING TOGETHER <span aria-hidden="true">↗</span>
+            LET&apos;S MAKE SOMETHING TOGETHER <ArrowUpRightIcon size={11} />
           </a>
         </div>
       </section>
@@ -96,8 +101,8 @@ export default async function Home() {
         <h2 data-reveal>Let&apos;s make something<br /><em>you can feel.</em></h2>
         <p data-reveal>Tell me what you&apos;re dreaming up. I&apos;d love to hear about it.</p>
         <a className="contact-button" href={telegramUrl} data-reveal>
-          CONTACT US
-           <span aria-hidden="true">↗</span>
+          CONTACT TO TELEGRAM
+          <ArrowUpRightIcon size={12} />
         </a>
       </section>
 

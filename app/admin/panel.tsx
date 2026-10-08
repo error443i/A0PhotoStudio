@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ArrowUpRightIcon } from "../icons";
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useState } from "react";
 import { detectImageMimeType, MAX_IMAGE_SIZE_BYTES } from "@/lib/image-validation";
 import type { TelegramPackage } from "@/lib/telegram-packages";
@@ -721,7 +722,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       <main className="admin-page">
         <header className="admin-topbar">
           <Link className="admin-brand" href="/">AO PHOTOGRAPHY</Link>
-          <Link className="admin-back-link" href="/">VIEW WEBSITE <span aria-hidden="true">↗</span></Link>
+          <Link className="admin-back-link" href="/">VIEW WEBSITE <ArrowUpRightIcon size={11} /></Link>
         </header>
         <section className="admin-auth" style={{ textAlign: "center" }}>
           <p className="admin-status">Checking admin access…</p>
@@ -734,7 +735,7 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     <main className="admin-page">
       <header className="admin-topbar">
         <Link className="admin-brand" href="/">AO PHOTOGRAPHY</Link>
-        <Link className="admin-back-link" href="/">VIEW WEBSITE <span aria-hidden="true">↗</span></Link>
+        <Link className="admin-back-link" href="/">VIEW WEBSITE <ArrowUpRightIcon size={11} /></Link>
       </header>
 
       {panelState === "signed-out" ? (

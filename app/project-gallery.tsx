@@ -1,11 +1,41 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import type { PortfolioProject } from "@/lib/portfolio";
+import { ArrowUpRightIcon, ArrowLeftIcon, ArrowRightIcon } from "./icons";
 
 export default function ProjectGallery({ projects }: { projects: PortfolioProject[] }) {
   const [activeProject, setActiveProject] = useState<PortfolioProject | null>(null);
   const [activePhoto, setActivePhoto] = useState<number | null>(null);
+  const [colCount, setColCount] = useState(4);
+
+  useEffect(() => {
+    function updateColumns() {
+      const w = window.innerWidth;
+      if (w < 600) setColCount(1);
+      else if (w < 900) setColCount(2);
+      else if (w < 1250) setColCount(3);
+      else if (w < 1650) setColCount(4);
+      else setColCount(5);
+    }
+
+    updateColumns();
+    window.addEventListener("resize", updateColumns);
+    return () => window.removeEventListener("resize", updateColumns);
+  }, []);
+
+  const masonryColumns = useMemo(() => {
+    if (!activeProject) return [];
+    const count = Math.max(1, Math.min(colCount, activeProject.images.length));
+    const cols: { image: string; index: number }[][] = Array.from(
+      { length: count },
+      () => [],
+    );
+    activeProject.images.forEach((image, index) => {
+      cols[index % count].push({ image, index });
+    });
+    return cols;
+  }, [activeProject, colCount]);
 
   useEffect(() => {
     if (!activeProject) return;
@@ -68,7 +98,9 @@ export default function ProjectGallery({ projects }: { projects: PortfolioProjec
               }
             >
               <span className="project-number">0{index + 1}</span>
-              <span className="project-open" aria-hidden="true">↗</span>
+              {/* <span className="project-open" aria-hidden="true">
+                <ArrowUpRightIcon size={16} />
+              </span> */}
               <span className="project-details">
                 <span className="project-title">{project.title}</span>
                 <span className="project-meta">{project.category} <i>·</i> {project.year}</span>
@@ -97,8 +129,8 @@ export default function ProjectGallery({ projects }: { projects: PortfolioProjec
                 }}
                 aria-label={activePhoto === null ? "Close photo collection" : "Back to photo collection"}
               >
-                <span aria-hidden="true">←</span>
-                {activePhoto === null ? "BACK TO PORTFOLIO" : "BACK TO COLLECTION"}
+                <ArrowLeftIcon size={14} />
+                <span>{activePhoto === null ? "BACK TO PORTFOLIO" : "BACK TO COLLECTION"}</span>
               </button>
               <div className="gallery-title-block" data-reveal>
                 <p className="section-index">PHOTO COLLECTION · {activeProject.category.toUpperCase()}</p>
@@ -108,45 +140,49 @@ export default function ProjectGallery({ projects }: { projects: PortfolioProjec
             </header>
             {activePhoto === null ? (
               <div className="gallery-photos">
-                {activeProject.images.map((image, index) => (
-                  <button
-                    className={`gallery-photo ${index === 0 ? "gallery-photo-cover" : ""}`}
-                    type="button"
-                    key={image}
-                    data-reveal
-                    onClick={() => setActivePhoto(index)}
-                    aria-label={`View photo ${index + 1} of ${activeProject.images.length}`}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={image}
-                      alt={`${activeProject.title}, photo ${index + 1}`}
-                      loading={index < 4 ? "eager" : "lazy"}
-                    />
-                    <span className={`gallery-pin-tag ${index === 0 ? "is-cover" : ""}`}>
-                      {index === 0 ? "★ COVER" : String(index + 1).padStart(2, "0")}
-                    </span>
-                    <div className="gallery-photo-overlay" aria-hidden="true">
-                      <span className="gallery-photo-zoom-btn">
-                        <svg
-                          width="13"
-                          height="13"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <circle cx="11" cy="11" r="8" />
-                          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                          <line x1="11" y1="8" x2="11" y2="14" />
-                          <line x1="8" y1="11" x2="14" y2="11" />
-                        </svg>
-                        <span>View</span>
-                      </span>
-                    </div>
-                  </button>
+                {masonryColumns.map((colPhotos, colIndex) => (
+                  <div className="gallery-photos-col" key={colIndex}>
+                    {colPhotos.map(({ image, index }) => (
+                      <button
+                        className="gallery-photo"
+                        type="button"
+                        key={image}
+                        data-reveal
+                        onClick={() => setActivePhoto(index)}
+                        aria-label={`View photo ${index + 1} of ${activeProject.images.length}`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={image}
+                          alt={`${activeProject.title}, photo ${index + 1}`}
+                          loading={index < 4 ? "eager" : "lazy"}
+                        />
+                        <span className="gallery-pin-tag">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <div className="gallery-photo-overlay" aria-hidden="true">
+                          <span className="gallery-photo-zoom-btn">
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <circle cx="11" cy="11" r="8" />
+                              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                              <line x1="11" y1="8" x2="11" y2="14" />
+                              <line x1="8" y1="11" x2="14" y2="11" />
+                            </svg>
+                            <span>View</span>
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 ))}
               </div>
             ) : (
@@ -165,15 +201,26 @@ export default function ProjectGallery({ projects }: { projects: PortfolioProjec
                     onClick={() => setActivePhoto((activePhoto - 1 + activeProject.images.length) % activeProject.images.length)}
                     aria-label="Previous photo"
                   >
-                    ← PREVIOUS
+                    <ArrowLeftIcon size={10} /> PREVIOUS
                   </button>
-                  <span>{String(activePhoto + 1).padStart(2, "0")} / {String(activeProject.images.length).padStart(2, "0")}</span>
+                  <div className="gallery-viewer-center-meta">
+                    <span>{String(activePhoto + 1).padStart(2, "0")} / {String(activeProject.images.length).padStart(2, "0")}</span>
+                    <a
+                      href={activeProject.images[activePhoto]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="gallery-viewer-original-link"
+                      title="Open full resolution photo in new tab"
+                    >
+                      ORIGINAL RESOLUTION <ArrowUpRightIcon size={9} />
+                    </a>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setActivePhoto((activePhoto + 1) % activeProject.images.length)}
                     aria-label="Next photo"
                   >
-                    NEXT →
+                    NEXT <ArrowRightIcon size={10} />
                   </button>
                 </div>
               </div>

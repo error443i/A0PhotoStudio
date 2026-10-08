@@ -669,20 +669,14 @@ export async function uploadAdminImageAction(
     let extension = getExtensionForMime(contentType, file.name);
 
     // Backend image processing & compression with sharp:
-    // Auto-orient EXIF, constrain to 3840px (4K max for web portfolio), and compress to high-fidelity WebP
+    // Auto-orient EXIF orientation, preserve 100% original dimensions, and compress to high-fidelity WebP
     if (contentType !== "image/svg+xml" && contentType !== "image/x-icon") {
       try {
         const sharp = (await import("sharp")).default;
         const isGif = contentType === "image/gif";
         const processed = await sharp(bytes, { animated: isGif })
           .rotate()
-          .resize({
-            width: 3840,
-            height: 3840,
-            fit: "inside",
-            withoutEnlargement: true,
-          })
-          .webp({ quality: 88, effort: 4 })
+          .webp({ quality: 90, effort: 4 })
           .toBuffer();
 
         bytes = new Uint8Array(processed);
