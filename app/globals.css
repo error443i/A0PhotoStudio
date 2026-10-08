@@ -840,38 +840,61 @@ a:focus-visible {
 
 .contact-section {
   display: flex;
-  min-height: 440px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 85px 0 100px;
+  background: var(--contact-bg);
+  border-top: 1px solid var(--line);
+}
+
+.contact-header {
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.contact-header .section-index {
+  margin: 0;
+  text-align: left;
+}
+
+.contact-center-block {
+  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 72px 20px;
-  background: var(--contact-bg);
   text-align: center;
+  margin: 0 auto;
+  width: min(100%, 960px);
+  padding: 0 20px;
 }
 
-.contact-section h2 {
-  margin: 21px 0 16px;
+.contact-center-block h2 {
+  margin: 0 0 16px;
   font-size: clamp(46px, 6.5vw, 77px);
   line-height: 1.08;
   letter-spacing: -2px;
+  text-align: center;
 }
 
-.contact-section > p:not(.section-index) {
+.contact-center-block > p {
   margin: 0 0 27px;
   color: var(--muted);
   font-size: 13px;
+  text-align: center;
+  max-width: 520px;
 }
 
 .contact-button {
   display: inline-flex;
   min-height: 48px;
   align-items: center;
-  gap: 19px;
-  padding: 0 21px;
+  gap: 12px;
+  padding: 0 24px;
   background: var(--ink);
   color: var(--paper);
   font-size: 8px;
-  transition: background 160ms ease;
+  letter-spacing: 1.2px;
+  transition: background 160ms ease, transform 160ms ease;
 }
 
 .contact-button:hover {
@@ -2880,17 +2903,17 @@ a:focus-visible {
   }
 
   .contact-section {
-    min-height: 360px;
-    padding: 60px 22px;
+    padding: 70px 0 80px;
   }
 
-  .contact-section h2 {
+  .contact-section h2,
+  .contact-center-block h2 {
     font-size: clamp(40px, 8vw, 60px);
     letter-spacing: -1.5px;
   }
 
-  .contact-section > p:not(.section-index) {
-    max-width: 320px;
+  .contact-center-block > p {
+    max-width: 480px;
     line-height: 1.7;
     font-size: 13px;
   }
@@ -3183,16 +3206,16 @@ a:focus-visible {
   }
 
   .contact-section {
-    min-height: 320px;
-    padding: 52px 16px;
+    padding: 56px 0 64px;
   }
 
-  .contact-section h2 {
+  .contact-section h2,
+  .contact-center-block h2 {
     font-size: clamp(34px, 8vw, 46px);
   }
 
-  .contact-section > p:not(.section-index) {
-    max-width: 290px;
+  .contact-center-block > p {
+    max-width: 420px;
     font-size: 12.5px;
   }
 
@@ -3382,11 +3405,11 @@ a:focus-visible {
   }
 
   .contact-section {
-    padding: 40px 12px;
-    min-height: 280px;
+    padding: 44px 0 52px;
   }
 
-  .contact-section h2 {
+  .contact-section h2,
+  .contact-center-block h2 {
     font-size: clamp(28px, 8.5vw, 36px);
   }
 

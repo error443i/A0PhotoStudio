@@ -97,13 +97,17 @@ export default async function Home() {
       </section>
 
       <section className="contact-section" id="contact">
-        <p className="section-index" data-reveal>03 / YOUR TURN</p>
-        <h2 data-reveal>Let&apos;s make something<br /><em>you can feel.</em></h2>
-        <p data-reveal>Tell me what you&apos;re dreaming up. I&apos;d love to hear about it.</p>
-        <a className="contact-button" href={telegramUrl} data-reveal>
-          CONTACT TO TELEGRAM
-          <ArrowUpRightIcon size={12} />
-        </a>
+        <div className="section-wrap contact-header">
+          <p className="section-index" data-reveal>03 / YOUR TURN</p>
+        </div>
+        <div className="contact-center-block">
+          <h2 data-reveal>Let&apos;s make something<br /><em>you can feel.</em></h2>
+          <p data-reveal>Tell me what you&apos;re dreaming up. I&apos;d love to hear about it.</p>
+          <a className="contact-button" href={telegramUrl} data-reveal>
+            CONTACT TO TELEGRAM
+            <ArrowUpRightIcon size={12} />
+          </a>
+        </div>
       </section>
 
       <footer className="site-footer">
