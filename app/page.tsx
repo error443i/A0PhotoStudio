@@ -28,9 +28,6 @@ export default async function Home() {
           <a href="#about" data-reveal>ABOUT</a>
           <a href="#contact" data-reveal>CONTACT</a>
         </nav>
-        <a className="mobile-menu" href="#work" aria-label="Explore portfolio" data-reveal>
-          EXPLORE <ArrowDownIcon size={10} />
-        </a>
         <ThemeToggle />
       </header>
 
