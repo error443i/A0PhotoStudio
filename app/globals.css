@@ -554,6 +554,13 @@ a:focus-visible {
   letter-spacing: 0 !important;
 }
 
+.project-title.is-myanmar {
+  font-size: clamp(15px, 1.6vw, 20px) !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0 !important;
+  margin-bottom: 2px;
+}
+
 .project-meta {
   color: rgb(255 255 255 / 85%);
   font-size: 7px !important;
@@ -656,6 +663,12 @@ a:focus-visible {
   font-weight: 400;
   letter-spacing: -0.055em;
   line-height: 0.98;
+}
+
+.gallery-title-block h2.is-myanmar {
+  font-size: clamp(28px, 5.5vw, 60px) !important;
+  line-height: 1.25 !important;
+  letter-spacing: 0 !important;
 }
 
 .gallery-title-block > p:last-child {
@@ -1435,6 +1448,67 @@ a:focus-visible {
 
 .admin-story-heading .section-index {
   margin: 0;
+}
+
+.admin-story-heading-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-story-order-ctrls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.admin-story-order-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--foreground);
+  font-size: 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.admin-story-order-btn:hover:not(:disabled) {
+  border-color: var(--foreground);
+  background: rgb(255 255 255 / 0.08);
+}
+
+.admin-story-order-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.admin-story-order-select {
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.admin-story-order-select:hover:not(:disabled) {
+  border-color: var(--foreground);
+}
+
+.admin-story-order-select:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .admin-photo-grid {
@@ -3030,6 +3104,11 @@ a:focus-visible {
     font-size: clamp(21px, 4.5vw, 26px) !important;
   }
 
+  .project-title.is-myanmar {
+    font-size: clamp(14px, 3.2vw, 18px) !important;
+    line-height: 1.35 !important;
+  }
+
   .project-meta {
     font-size: 7px !important;
   }
@@ -3359,6 +3438,11 @@ a:focus-visible {
     font-size: 21px !important;
   }
 
+  .project-title.is-myanmar {
+    font-size: 15px !important;
+    line-height: 1.35 !important;
+  }
+
   .project-meta {
     font-size: 7px !important;
   }
@@ -3542,6 +3626,11 @@ a:focus-visible {
 
   .project-title {
     font-size: 19px !important;
+  }
+
+  .project-title.is-myanmar {
+    font-size: 14px !important;
+    line-height: 1.3 !important;
   }
 
   .project-meta {

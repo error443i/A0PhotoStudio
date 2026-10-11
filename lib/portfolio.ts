@@ -143,7 +143,8 @@ export async function getFeaturedStories(): Promise<PortfolioProject[]> {
     const { data, error } = await supabase
       .from("featured_stories")
       .select("id, title, category, year, story_photos(image_url)")
-      .order("sort_order")
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true })
       .order("sort_order", { referencedTable: "story_photos" });
 
     if (error) {

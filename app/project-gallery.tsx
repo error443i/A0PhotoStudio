@@ -4,6 +4,11 @@ import { useEffect, useState, useMemo } from "react";
 import type { PortfolioProject } from "@/lib/portfolio";
 import { ArrowUpRightIcon, ArrowLeftIcon, ArrowRightIcon } from "./icons";
 
+function isMyanmarText(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return /[\u1000-\u109F\uAA60-\uAA7F]/.test(text);
+}
+
 export default function ProjectGallery({ projects }: { projects: PortfolioProject[] }) {
   const [activeProject, setActiveProject] = useState<PortfolioProject | null>(null);
   const [activePhoto, setActivePhoto] = useState<number | null>(null);
@@ -117,7 +122,9 @@ export default function ProjectGallery({ projects }: { projects: PortfolioProjec
                   ) : null}
                   <span className="project-number">0{index + 1}</span>
                   <span className="project-details">
-                    <span className="project-title">{project.title}</span>
+                    <span className={`project-title${isMyanmarText(project.title) ? " is-myanmar" : ""}`}>
+                      {project.title}
+                    </span>
                     <span className="project-meta">
                       {project.category} <i>·</i> {project.year}
                     </span>
@@ -155,7 +162,9 @@ export default function ProjectGallery({ projects }: { projects: PortfolioProjec
               </button>
               <div className="gallery-title-block" data-reveal>
                 <p className="section-index">PHOTO COLLECTION · {activeProject.category.toUpperCase()}</p>
-                <h2 id="gallery-title">{activeProject.title}</h2>
+                <h2 id="gallery-title" className={isMyanmarText(activeProject.title) ? "is-myanmar" : ""}>
+                  {activeProject.title}
+                </h2>
                 <p>{activeProject.year} <span>·</span> {activeProject.images.length} photographs</p>
               </div>
             </header>

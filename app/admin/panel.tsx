@@ -21,6 +21,7 @@ import {
   deleteStoryAction,
   removePhotoAction,
   setStoryCoverPhotoAction,
+  reorderStoriesAction,
   createTelegramPackageAction,
   saveTelegramPackageAction,
   deleteTelegramPackageAction,
@@ -832,6 +833,62 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     }
   }
 
+  async function handleMoveStory(currentIndex: number, direction: "up" | "down") {
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= stories.length) return;
+
+    setError("");
+    setMessage("");
+
+    const reordered = [...stories];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    setStories(reordered);
+    setBusy(`reorder:${moved.id}`);
+
+    try {
+      const ids = reordered.map((s) => s.id);
+      const res = await reorderStoriesAction(ids);
+      if (!res.success) throw new Error(res.error || "Failed to update story order.");
+      setMessage(`Moved “${moved.title}” to position ${targetIndex + 1}.`);
+      await loadStories();
+    } catch (err) {
+      setError(`Unable to reorder story: ${errorMessage(err)}`);
+      await loadStories();
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleMoveStoryToPosition(currentIndex: number, targetPosition: number) {
+    const targetIndex = targetPosition - 1;
+    if (targetIndex < 0 || targetIndex >= stories.length || targetIndex === currentIndex) return;
+
+    setError("");
+    setMessage("");
+
+    const reordered = [...stories];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    setStories(reordered);
+    setBusy(`reorder:${moved.id}`);
+
+    try {
+      const ids = reordered.map((s) => s.id);
+      const res = await reorderStoriesAction(ids);
+      if (!res.success) throw new Error(res.error || "Failed to update story order.");
+      setMessage(`Moved “${moved.title}” to position ${targetPosition}.`);
+      await loadStories();
+    } catch (err) {
+      setError(`Unable to reorder story: ${errorMessage(err)}`);
+      await loadStories();
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function handleSavePortfolioYears() {
     setError("");
     setMessage("");
@@ -1506,7 +1563,45 @@ on conflict (user_id) do nothing;`}</code></pre>
               return (
                 <article className="admin-story" key={story.id}>
                   <div className="admin-story-heading">
-                    <span className="section-index">STORY {String(index + 1).padStart(2, "0")}</span>
+                    <div className="admin-story-heading-left">
+                      <span className="section-index">STORY {String(index + 1).padStart(2, "0")}</span>
+                      <div className="admin-story-order-ctrls">
+                        <button
+                          type="button"
+                          className="admin-story-order-btn"
+                          disabled={index === 0 || busy.length > 0}
+                          onClick={() => void handleMoveStory(index, "up")}
+                          title="Move story up (earlier in portfolio)"
+                          aria-label={`Move ${story.title} up`}
+                        >
+                          ▲
+                        </button>
+                        <button
+                          type="button"
+                          className="admin-story-order-btn"
+                          disabled={index === stories.length - 1 || busy.length > 0}
+                          onClick={() => void handleMoveStory(index, "down")}
+                          title="Move story down (later in portfolio)"
+                          aria-label={`Move ${story.title} down`}
+                        >
+                          ▼
+                        </button>
+                        <select
+                          className="admin-story-order-select"
+                          value={index + 1}
+                          disabled={busy.length > 0}
+                          onChange={(e) => void handleMoveStoryToPosition(index, Number(e.target.value))}
+                          title="Jump to position"
+                          aria-label={`Jump position for ${story.title}`}
+                        >
+                          {stories.map((_, sIdx) => (
+                            <option key={sIdx + 1} value={sIdx + 1}>
+                              #{sIdx + 1}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
                     <span>{story.story_photos.length} PHOTOS</span>
                   </div>
                   <div className="admin-story-fields">

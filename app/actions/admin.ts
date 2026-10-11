@@ -217,7 +217,8 @@ export async function getAdminStoriesAction(): Promise<{
     const { data, error } = await authResult.client
       .from("featured_stories")
       .select("id, title, category, year, sort_order, story_photos(id, image_url, storage_path, sort_order)")
-      .order("sort_order")
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true })
       .order("sort_order", { referencedTable: "story_photos" });
 
     if (error) throw error;
@@ -430,11 +431,12 @@ export async function createStoryAction(input: {
       throw new Error("Title, category, and year are required.");
     }
 
-    const { data: countData } = await authResult.client
+    const { data: existingStories } = await authResult.client
       .from("featured_stories")
-      .select("id", { count: "exact", head: true });
+      .select("sort_order");
 
-    const sortOrder = (countData?.length ?? 0) + 1;
+    const maxSort = Math.max(0, ...(existingStories ?? []).map((s) => s.sort_order ?? 0));
+    const sortOrder = maxSort + 1;
 
     const { error } = await authResult.client.from("featured_stories").insert({
       title,
@@ -616,6 +618,40 @@ export async function setStoryCoverPhotoAction(
         if (updateError) throw updateError;
       }
     }
+
+    revalidatePath("/");
+    revalidatePath("/admin");
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: formatErrorMessage(error) };
+  }
+}
+
+/**
+ * Reorders featured stories by updating sort_order (1-indexed) according to the provided ID order.
+ */
+export async function reorderStoriesAction(
+  storyIds: string[],
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const authResult = await verifyAdminSession();
+    if (authResult.status !== "admin") throw new Error("Administrator access required.");
+
+    if (!Array.isArray(storyIds) || storyIds.length === 0) {
+      throw new Error("No story IDs provided for reordering.");
+    }
+
+    const adminClient = createAdminSupabaseClient();
+
+    // Update each story's sort_order to its new index (1-based)
+    await Promise.all(
+      storyIds.map((id, index) =>
+        adminClient
+          .from("featured_stories")
+          .update({ sort_order: index + 1 })
+          .eq("id", id)
+      )
+    );
 
     revalidatePath("/");
     revalidatePath("/admin");
