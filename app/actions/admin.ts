@@ -13,7 +13,11 @@ import {
   MAX_IMAGE_SIZE_BYTES,
 } from "@/lib/image-validation";
 import { toProxiedImageUrl } from "@/lib/image-url";
-import type { TelegramPackage } from "@/lib/telegram-packages";
+import {
+  type TelegramPackage,
+  extractPackagePhotos,
+  extractPackagePhoto,
+} from "@/lib/telegram-packages";
 
 export type AdminStoryPhoto = {
   id: string;
@@ -380,7 +384,22 @@ export async function getAdminTelegramPackagesAction(): Promise<{
 
     if (error) throw error;
 
-    return { success: true, packages: (data ?? []) as TelegramPackage[] };
+    const orderedPackages: TelegramPackage[] = ((data ?? []) as TelegramPackage[]).map((pkg) => {
+      const extracted = extractPackagePhotos(pkg.details);
+      const firstPhoto = extracted.photos[0];
+      return {
+        ...pkg,
+        details: extracted.cleanDetails,
+        image_url: firstPhoto?.image_url ? (toProxiedImageUrl(firstPhoto.image_url) ?? firstPhoto.image_url) : null,
+        storage_path: firstPhoto?.storage_path ?? null,
+        photos: extracted.photos.map((p) => ({
+          ...p,
+          image_url: toProxiedImageUrl(p.image_url) ?? p.image_url,
+        })),
+      };
+    });
+
+    return { success: true, packages: orderedPackages };
   } catch (error) {
     const isSetup = isMissingSchemaTable(error);
     return {
@@ -609,18 +628,40 @@ export async function setStoryCoverPhotoAction(
 /**
  * Creates a Telegram package.
  */
-export async function createTelegramPackageAction(input: {
-  title: string;
-  price: string;
-  details: string;
-}): Promise<{ success: boolean; error?: string }> {
+export async function createTelegramPackageAction(
+  input: FormData | { title: string; price: string; details: string },
+): Promise<{ success: boolean; packageId?: string; error?: string }> {
   try {
     const authResult = await verifyAdminSession();
     if (authResult.status !== "admin") throw new Error("Administrator access required.");
 
-    const title = input.title.trim();
-    const price = input.price.trim();
-    const details = input.details.trim();
+    let title: string;
+    let price: string;
+    let details: string;
+    const photoFiles: File[] = [];
+
+    if (input instanceof FormData) {
+      title = String(input.get("title") ?? "").trim();
+      price = String(input.get("price") ?? "").trim();
+      details = String(input.get("details") ?? "").trim();
+
+      const rawFiles = input.getAll("files");
+      for (const f of rawFiles) {
+        if (f instanceof File && f.size > 0) {
+          photoFiles.push(f);
+        }
+      }
+      if (photoFiles.length === 0) {
+        const singleFile = input.get("file");
+        if (singleFile instanceof File && singleFile.size > 0) {
+          photoFiles.push(singleFile);
+        }
+      }
+    } else {
+      title = input.title.trim();
+      price = input.price.trim();
+      details = input.details.trim();
+    }
 
     if (!title || !price || !details) {
       throw new Error("Title, price, and details are required.");
@@ -631,18 +672,95 @@ export async function createTelegramPackageAction(input: {
       .select("sort_order");
 
     const maxSort = Math.max(0, ...(existingPackages ?? []).map((p) => p.sort_order ?? 0));
+    const packageId = crypto.randomUUID();
 
-    const { error } = await authResult.client.from("telegram_packages").insert({
-      title,
-      price,
-      details,
-      sort_order: maxSort + 1,
-    });
+    const adminClient = createAdminSupabaseClient();
+    const uploadedPhotos: { id: string; url: string; path: string }[] = [];
 
-    if (error) throw error;
+    for (const photoFile of photoFiles) {
+      if (photoFile.size > MAX_IMAGE_SIZE_BYTES) {
+        throw new Error(`Package photo "${photoFile.name}" must be 20 MB or smaller.`);
+      }
+      let bytes = new Uint8Array(await photoFile.arrayBuffer());
+      let mimeType = detectImageMimeType(bytes.slice(0, 512), photoFile.name || photoFile.type);
+      if (!mimeType) {
+        throw new Error(`Package photo "${photoFile.name}" must be a valid JPEG, PNG, or WebP image.`);
+      }
+      let extension = getExtensionForMime(mimeType, photoFile.name);
+
+      if (mimeType !== "image/svg+xml" && mimeType !== "image/x-icon") {
+        try {
+          const sharp = (await import("sharp")).default;
+          const isGif = mimeType === "image/gif";
+          const processed = await sharp(bytes, { animated: isGif })
+            .rotate()
+            .webp({ quality: 90, effort: 4 })
+            .toBuffer();
+          bytes = new Uint8Array(processed);
+          mimeType = "image/webp";
+          extension = "webp";
+        } catch (procErr) {
+          console.warn("Sharp compression skipped for package photo:", procErr);
+        }
+      }
+
+      const photoId = crypto.randomUUID();
+      const storagePath = `packages/${packageId}/${photoId}.${extension}`;
+
+      const { error: uploadError } = await adminClient.storage
+        .from("portfolio-photos")
+        .upload(storagePath, bytes, { contentType: mimeType, upsert: false });
+
+      if (uploadError) {
+        if (uploadedPhotos.length > 0) {
+          await adminClient.storage
+            .from("portfolio-photos")
+            .remove(uploadedPhotos.map((p) => p.path))
+            .catch(() => {});
+        }
+        throw new Error(`Unable to store package photo: ${uploadError.message}`);
+      }
+
+      const { data: publicUrlData } = adminClient.storage
+        .from("portfolio-photos")
+        .getPublicUrl(storagePath);
+
+      uploadedPhotos.push({
+        id: photoId,
+        url: publicUrlData.publicUrl,
+        path: storagePath,
+      });
+    }
+
+    let detailsToSave = details;
+    if (uploadedPhotos.length > 0) {
+      detailsToSave = `${details}\n<!-- photos:${JSON.stringify(uploadedPhotos)} -->`;
+    }
+
+    const insertResult = await authResult.client
+      .from("telegram_packages")
+      .insert({
+        id: packageId,
+        title,
+        price,
+        details: detailsToSave,
+        sort_order: maxSort + 1,
+      })
+      .select("id")
+      .single();
+
+    if (insertResult.error) {
+      if (uploadedPhotos.length > 0) {
+        await adminClient.storage
+          .from("portfolio-photos")
+          .remove(uploadedPhotos.map((p) => p.path))
+          .catch(() => {});
+      }
+      throw insertResult.error;
+    }
 
     revalidatePath("/admin/telegram");
-    return { success: true };
+    return { success: true, packageId };
   } catch (error) {
     return { success: false, error: formatErrorMessage(error) };
   }
@@ -667,12 +785,35 @@ export async function saveTelegramPackageAction(
       throw new Error("Title, price, and details are required.");
     }
 
-    const { error } = await authResult.client
+    const { data: currentPkg, error: selectError } = await authResult.client
       .from("telegram_packages")
-      .update({ title, price, details })
+      .select("id, details")
+      .eq("id", packageId)
+      .maybeSingle();
+
+    if (selectError || !currentPkg) {
+      throw new Error(selectError ? selectError.message : "Package not found.");
+    }
+
+    let detailsToSave = details;
+    if (currentPkg.details) {
+      const extracted = extractPackagePhotos(currentPkg.details);
+      if (extracted.photos.length > 0) {
+        const photoData = extracted.photos.map((p) => ({
+          id: p.id,
+          url: p.image_url,
+          path: p.storage_path ?? null,
+        }));
+        detailsToSave = `${details}\n<!-- photos:${JSON.stringify(photoData)} -->`;
+      }
+    }
+
+    const { error: updateError } = await authResult.client
+      .from("telegram_packages")
+      .update({ title, price, details: detailsToSave })
       .eq("id", packageId);
 
-    if (error) throw error;
+    if (updateError) throw updateError;
 
     revalidatePath("/admin/telegram");
     return { success: true };
@@ -691,12 +832,106 @@ export async function deleteTelegramPackageAction(
     const authResult = await verifyAdminSession();
     if (authResult.status !== "admin") throw new Error("Administrator access required.");
 
+    const { data: pkgData } = await authResult.client
+      .from("telegram_packages")
+      .select("id, details")
+      .eq("id", packageId)
+      .maybeSingle();
+
     const { error } = await authResult.client
       .from("telegram_packages")
       .delete()
       .eq("id", packageId);
 
     if (error) throw error;
+
+    if (pkgData?.details) {
+      const extracted = extractPackagePhotos(pkgData.details);
+      const pathsToDelete = extracted.photos
+        .map((p) => p.storage_path)
+        .filter((p): p is string => Boolean(p));
+
+      if (pathsToDelete.length > 0) {
+        const adminClient = createAdminSupabaseClient();
+        await adminClient.storage
+          .from("portfolio-photos")
+          .remove(pathsToDelete)
+          .catch(() => {});
+      }
+    }
+
+    revalidatePath("/admin/telegram");
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: formatErrorMessage(error) };
+  }
+}
+
+/**
+ * Removes one photo or all photos from a Telegram package.
+ */
+export async function removeTelegramPackagePhotoAction(
+  packageId: string,
+  photoId?: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const authResult = await verifyAdminSession();
+    if (authResult.status !== "admin") throw new Error("Administrator access required.");
+
+    const adminClient = createAdminSupabaseClient();
+
+    const { data: pkgData, error: pkgError } = await adminClient
+      .from("telegram_packages")
+      .select("id, details")
+      .eq("id", packageId)
+      .maybeSingle();
+
+    if (pkgError || !pkgData) throw new Error("Package not found.");
+
+    const extracted = extractPackagePhotos(pkgData.details);
+    const pathsToDelete: string[] = [];
+    let remainingPhotos: typeof extracted.photos = [];
+
+    if (photoId) {
+      for (const p of extracted.photos) {
+        if (p.id === photoId) {
+          if (p.storage_path) pathsToDelete.push(p.storage_path);
+        } else {
+          remainingPhotos.push(p);
+        }
+      }
+    } else {
+      for (const p of extracted.photos) {
+        if (p.storage_path) pathsToDelete.push(p.storage_path);
+      }
+      remainingPhotos = [];
+    }
+
+    let detailsToSave = extracted.cleanDetails;
+    if (remainingPhotos.length > 0) {
+      const photoData = remainingPhotos.map((p) => ({
+        id: p.id,
+        url: p.image_url,
+        path: p.storage_path ?? null,
+      }));
+      detailsToSave = `${extracted.cleanDetails}\n<!-- photos:${JSON.stringify(photoData)} -->`;
+    }
+
+    const { error: updateError } = await adminClient
+      .from("telegram_packages")
+      .update({
+        details: detailsToSave,
+      })
+      .eq("id", packageId);
+
+    if (updateError) throw updateError;
+
+    if (pathsToDelete.length > 0) {
+      await adminClient.storage
+        .from("portfolio-photos")
+        .remove(pathsToDelete)
+        .catch(() => {});
+    }
 
     revalidatePath("/admin/telegram");
     return { success: true };
@@ -717,13 +952,18 @@ export async function uploadAdminImageAction(
 
     const purpose = formData.get("purpose");
     const storyId = formData.get("storyId") ? String(formData.get("storyId")) : undefined;
+    const packageId = formData.get("packageId") ? String(formData.get("packageId")) : undefined;
     const file = formData.get("file");
     const setAsCover = formData.get("setAsCover") === "true";
     const replacePhotoId = formData.get("replacePhotoId")
       ? String(formData.get("replacePhotoId"))
       : undefined;
 
-    if (purpose !== "story-photo" && purpose !== "hero-background") {
+    if (
+      purpose !== "story-photo" &&
+      purpose !== "hero-background" &&
+      purpose !== "package-photo"
+    ) {
       throw new Error("Invalid image purpose.");
     }
 
@@ -774,11 +1014,23 @@ export async function uploadAdminImageAction(
         .maybeSingle();
 
       if (storyError || !story) throw new Error("Selected collection was not found.");
+    } else if (purpose === "package-photo") {
+      if (!packageId) throw new Error("A Telegram package must be specified.");
+
+      const { data: pkg, error: pkgError } = await adminClient
+        .from("telegram_packages")
+        .select("id, details")
+        .eq("id", packageId)
+        .maybeSingle();
+
+      if (pkgError || !pkg) throw new Error("Selected Telegram package was not found.");
     }
 
     const storagePath =
       purpose === "hero-background"
         ? `hero/${crypto.randomUUID()}.${extension}`
+        : purpose === "package-photo"
+        ? `packages/${packageId}/${crypto.randomUUID()}.${extension}`
         : `${storyId}/${crypto.randomUUID()}.${extension}`;
 
     const { error: uploadError } = await adminClient.storage
@@ -863,6 +1115,77 @@ export async function uploadAdminImageAction(
           }
         }
       }
+    } else if (purpose === "package-photo") {
+      const { data: previousPkg, error: pkgError } = await adminClient
+        .from("telegram_packages")
+        .select("id, details")
+        .eq("id", packageId)
+        .maybeSingle();
+
+      if (pkgError || !previousPkg) {
+        throw new Error("Selected Telegram package was not found.");
+      }
+
+      const extracted = extractPackagePhotos(previousPkg.details);
+      const cleanDetails = extracted.cleanDetails;
+      const currentPhotos = [...extracted.photos];
+      let oldPathToDelete: string | null = null;
+      const newPhotoId = crypto.randomUUID();
+
+      if (replacePhotoId) {
+        const existingIdx = currentPhotos.findIndex((p) => p.id === replacePhotoId);
+        if (existingIdx !== -1) {
+          oldPathToDelete = currentPhotos[existingIdx].storage_path ?? null;
+          currentPhotos[existingIdx] = {
+            id: replacePhotoId,
+            image_url: publicUrl,
+            storage_path: storagePath,
+          };
+        } else {
+          currentPhotos.push({
+            id: newPhotoId,
+            image_url: publicUrl,
+            storage_path: storagePath,
+          });
+        }
+      } else {
+        currentPhotos.push({
+          id: newPhotoId,
+          image_url: publicUrl,
+          storage_path: storagePath,
+        });
+      }
+
+      const photoData = currentPhotos.map((p) => ({
+        id: p.id,
+        url: p.image_url,
+        path: p.storage_path ?? null,
+      }));
+      const detailsWithTag = cleanDetails
+        ? `${cleanDetails}\n<!-- photos:${JSON.stringify(photoData)} -->`
+        : `<!-- photos:${JSON.stringify(photoData)} -->`;
+
+      const { error: updateError } = await adminClient
+        .from("telegram_packages")
+        .update({
+          details: detailsWithTag,
+        })
+        .eq("id", packageId);
+
+      if (updateError) {
+        await adminClient.storage.from("portfolio-photos").remove([storagePath]);
+        throw new Error(`Unable to save package photo: ${updateError.message}`);
+      }
+
+      if (oldPathToDelete && oldPathToDelete !== storagePath) {
+        await adminClient.storage
+          .from("portfolio-photos")
+          .remove([oldPathToDelete])
+          .catch(() => {});
+      }
+
+      revalidatePath("/admin/telegram");
+      insertedPhotoId = replacePhotoId || newPhotoId;
     } else {
       const { data: previousSetting } = await adminClient
         .from("site_settings")

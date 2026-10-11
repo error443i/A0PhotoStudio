@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowUpRightIcon } from "../icons";
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useState } from "react";
 import { detectImageMimeType, MAX_IMAGE_SIZE_BYTES } from "@/lib/image-validation";
+import { toProxiedImageUrl } from "@/lib/image-url";
 import type { TelegramPackage } from "@/lib/telegram-packages";
 import {
   getAdminSessionAction,
@@ -23,6 +24,7 @@ import {
   createTelegramPackageAction,
   saveTelegramPackageAction,
   deleteTelegramPackageAction,
+  removeTelegramPackagePhotoAction,
   uploadAdminImageAction,
   type AdminStory,
   type AdminStoryPhoto,
@@ -30,6 +32,7 @@ import {
 } from "@/app/actions/admin";
 
 import ImageEditorModal from "./image-editor-modal";
+import ThemeToggle from "../theme-toggle";
 
 type Photo = AdminStoryPhoto;
 type Story = AdminStory;
@@ -40,6 +43,8 @@ type EditorTarget =
   | { purpose: "hero-background"; files: File[] }
   | { purpose: "story-photo"; story: Story; files: File[] }
   | { purpose: "set-cover"; story: Story; files: File[]; replacePhotoId?: string }
+  | { purpose: "package-photo"; photoPackage: TelegramPackage; files: File[]; replacePhotoId?: string }
+  | { purpose: "new-package-photo"; files: File[]; editIndex?: number }
   | null;
 
 type Confirmation = {
@@ -72,6 +77,8 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   const [password, setPassword] = useState("");
   const [newStory, setNewStory] = useState({ title: "", category: "", year: "" });
   const [newPackage, setNewPackage] = useState<PackageDraft>({ title: "", price: "", details: "" });
+  const [newPackagePhotos, setNewPackagePhotos] = useState<File[]>([]);
+  const [newPackagePreviews, setNewPackagePreviews] = useState<string[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
@@ -86,6 +93,18 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   const [editorTarget, setEditorTarget] = useState<EditorTarget>(null);
   const [dragOverStoryId, setDragOverStoryId] = useState<string | null>(null);
   const [dragOverHero, setDragOverHero] = useState(false);
+
+  useEffect(() => {
+    if (newPackagePhotos.length === 0) {
+      setNewPackagePreviews([]);
+      return;
+    }
+    const urls = newPackagePhotos.map((f) => URL.createObjectURL(f));
+    setNewPackagePreviews(urls);
+    return () => {
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [newPackagePhotos]);
 
   useEffect(() => {
     if (!confirmation && !error) return;
@@ -424,10 +443,19 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     setBusy("create-package");
 
     try {
-      const res = await createTelegramPackageAction(newPackage);
+      const formData = new FormData();
+      formData.set("title", newPackage.title);
+      formData.set("price", newPackage.price);
+      formData.set("details", newPackage.details);
+      for (const photo of newPackagePhotos) {
+        formData.append("files", photo);
+      }
+
+      const res = await createTelegramPackageAction(formData);
       if (!res.success) throw new Error(res.error);
 
       setNewPackage({ title: "", price: "", details: "" });
+      setNewPackagePhotos([]);
       await loadTelegramPackages();
       setMessage("Telegram package added.");
     } catch (createError) {
@@ -435,6 +463,45 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     } finally {
       setBusy("");
     }
+  }
+
+  async function handleNewPackagePhotosChange(event: ChangeEvent<HTMLInputElement>) {
+    const rawFiles = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (rawFiles.length === 0) return;
+
+    const validFiles: File[] = [];
+    for (const file of rawFiles) {
+      if (
+        file.size > MAX_IMAGE_SIZE_BYTES ||
+        !detectImageMimeType(
+          new Uint8Array(await file.slice(0, 512).arrayBuffer()),
+          file.name || file.type,
+        )
+      ) {
+        setError(`${file.name} must be a valid image file no larger than 20 MB.`);
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    if (validFiles.length > 0) {
+      setNewPackagePhotos((prev) => [...prev, ...validFiles]);
+    }
+  }
+
+  function handleEditNewPackagePhoto(index: number) {
+    const file = newPackagePhotos[index];
+    if (!file) return;
+    setEditorTarget({
+      purpose: "new-package-photo",
+      files: [file],
+      editIndex: index,
+    });
+  }
+
+  function handleRemoveNewPackagePhoto(index: number) {
+    setNewPackagePhotos((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function handleSavePackage(packageId: string) {
@@ -491,6 +558,112 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       setMessage(`Telegram package “${photoPackage.title}” deleted.`);
     } catch (deleteError) {
       setError(`Unable to delete Telegram package: ${errorMessage(deleteError)}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handlePackagePhotosUpload(photoPackage: TelegramPackage, event: ChangeEvent<HTMLInputElement>) {
+    const rawFiles = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (rawFiles.length === 0) return;
+
+    const validFiles: File[] = [];
+    for (const file of rawFiles) {
+      if (
+        file.size > MAX_IMAGE_SIZE_BYTES ||
+        !detectImageMimeType(
+          new Uint8Array(await file.slice(0, 512).arrayBuffer()),
+          file.name || file.type,
+        )
+      ) {
+        setError(`${file.name} must be a valid image file no larger than 20 MB.`);
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    if (validFiles.length === 0) return;
+
+    setEditorTarget({
+      purpose: "package-photo",
+      photoPackage,
+      files: validFiles,
+    });
+  }
+
+  async function handleEditPackagePhotoModal(photoPackage: TelegramPackage, photo: { id: string; image_url: string }) {
+    if (!photo.image_url) return;
+    setError("");
+    setMessage("");
+    setBusy(`package-photo:${photoPackage.id}`);
+
+    try {
+      const file = await photoUrlToFile(photo.image_url, `package-${photo.id}.jpg`);
+      setEditorTarget({
+        purpose: "package-photo",
+        photoPackage,
+        files: [file],
+        replacePhotoId: photo.id,
+      });
+    } catch (err) {
+      setError(`Unable to open image editor for package photo: ${errorMessage(err)}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function handleRemovePackagePhoto(photoPackage: TelegramPackage, photoId?: string) {
+    setConfirmation({
+      title: photoId ? "Remove this package photo?" : "Remove all package photos?",
+      description: photoId
+        ? `Remove this photo from “${photoPackage.title}”?`
+        : `Remove all photos from “${photoPackage.title}”? The Telegram bot will only show text for this package.`,
+      confirmLabel: "Remove photo",
+      destructive: true,
+      onConfirm: () => void removePackagePhoto(photoPackage, photoId),
+    });
+  }
+
+  async function removePackagePhoto(photoPackage: TelegramPackage, photoId?: string) {
+    setError("");
+    setMessage("");
+    setBusy(`package-photo:${photoPackage.id}`);
+
+    try {
+      const res = await removeTelegramPackagePhotoAction(photoPackage.id, photoId);
+      if (!res.success) throw new Error(res.error);
+
+      await loadTelegramPackages();
+      setMessage(photoId ? `Photo removed from “${photoPackage.title}”.` : `All photos removed from “${photoPackage.title}”.`);
+    } catch (err) {
+      setError(`Unable to remove package photo: ${errorMessage(err)}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function savePackagePhoto(photoPackage: TelegramPackage, file: File, replacePhotoId?: string) {
+    setError("");
+    setMessage("");
+    setBusy(`package-photo:${photoPackage.id}`);
+
+    try {
+      const formData = new FormData();
+      formData.set("purpose", "package-photo");
+      formData.set("packageId", photoPackage.id);
+      formData.set("file", file);
+      if (replacePhotoId) {
+        formData.set("replacePhotoId", replacePhotoId);
+      }
+
+      const res = await uploadAdminImageAction(formData);
+      if (!res.success) throw new Error(res.error || "Failed to upload package photo.");
+
+      setMessage(`Photo for “${photoPackage.title}” updated.`);
+      await loadTelegramPackages();
+    } catch (err) {
+      setError(`Unable to upload package photo: ${errorMessage(err)}`);
     } finally {
       setBusy("");
     }
@@ -676,7 +849,8 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
   }
 
   async function photoUrlToFile(url: string, filename: string): Promise<File> {
-    const res = await fetch(url);
+    const proxiedUrl = toProxiedImageUrl(url) ?? url;
+    const res = await fetch(proxiedUrl);
     if (!res.ok) throw new Error("Could not load image.");
     const blob = await res.blob();
     return new File([blob], filename, { type: blob.type || "image/jpeg" });
@@ -846,7 +1020,10 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
       <main className="admin-page">
         <header className="admin-topbar">
           <Link className="admin-brand" href="/">AO PHOTOGRAPHY</Link>
-          <Link className="admin-back-link" href="/">VIEW WEBSITE <ArrowUpRightIcon size={11} /></Link>
+          <div className="admin-topbar-actions">
+            <ThemeToggle />
+            <Link className="admin-back-link" href="/">VIEW WEBSITE <ArrowUpRightIcon size={11} /></Link>
+          </div>
         </header>
         <section className="admin-auth" style={{ textAlign: "center" }}>
           <p className="admin-status">Checking admin access…</p>
@@ -859,7 +1036,10 @@ export default function AdminPanel({ section = "collections" }: { section?: Admi
     <main className="admin-page">
       <header className="admin-topbar">
         <Link className="admin-brand" href="/">AO PHOTOGRAPHY</Link>
-        <Link className="admin-back-link" href="/">VIEW WEBSITE <ArrowUpRightIcon size={11} /></Link>
+        <div className="admin-topbar-actions">
+          <ThemeToggle />
+          <Link className="admin-back-link" href="/">VIEW WEBSITE <ArrowUpRightIcon size={11} /></Link>
+        </div>
       </header>
 
       {panelState === "signed-out" ? (
@@ -984,7 +1164,7 @@ on conflict (user_id) do nothing;`}</code></pre>
             >
               {heroBackground?.value ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={heroBackground.value} alt="Current homepage background" />
+                <img src={toProxiedImageUrl(heroBackground.value) ?? heroBackground.value} alt="Current homepage background" />
               ) : (
                 <div className="admin-background-placeholder">DEFAULT PHOTO</div>
               )}
@@ -1044,6 +1224,82 @@ on conflict (user_id) do nothing;`}</code></pre>
                     required
                   />
                 </label>
+
+                <div className="admin-package-details admin-package-photo-section">
+                  <div className="admin-package-photo-header">
+                    <span className="admin-field-hint">PACKAGE PHOTOS (OPTIONAL)</span>
+                    {newPackagePhotos.length > 0 && (
+                      <span className="admin-field-hint">
+                        {newPackagePhotos.length} photo{newPackagePhotos.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                  {newPackagePhotos.length > 0 ? (
+                    <div className="admin-package-photo-grid">
+                      {newPackagePhotos.map((file, idx) => {
+                        const previewUrl = newPackagePreviews[idx];
+                        return (
+                          <div className="admin-package-photo-grid-item" key={idx}>
+                            <div className="admin-package-photo-thumb-wrap">
+                              {previewUrl && (
+                                <img
+                                  src={previewUrl}
+                                  alt={`New package photo ${idx + 1}`}
+                                  className="admin-package-photo-thumb"
+                                />
+                              )}
+                            </div>
+                            <div className="admin-package-photo-item-actions">
+                              <button
+                                type="button"
+                                className="admin-secondary-button admin-package-photo-sm-btn"
+                                onClick={() => handleEditNewPackagePhoto(idx)}
+                                disabled={busy === "create-package"}
+                                title="Edit photo"
+                              >
+                                ✂ Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="admin-story-delete-button admin-package-photo-sm-btn"
+                                onClick={() => handleRemoveNewPackagePhoto(idx)}
+                                disabled={busy === "create-package"}
+                                title="Remove photo"
+                              >
+                                ✕ Remove
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <label className="admin-package-photo-add-card">
+                        <span className="admin-package-photo-add-icon">＋</span>
+                        <span className="admin-package-photo-add-text">Add more</span>
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*,.heic,.heif"
+                          disabled={busy === "create-package"}
+                          onChange={(event) => void handleNewPackagePhotosChange(event)}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="admin-package-photo-empty-box">
+                      <label className="admin-upload-button admin-package-photo-upload-trigger">
+                        <span>＋ ADD PACKAGE PHOTOS</span>
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*,.heic,.heif"
+                          disabled={busy === "create-package"}
+                          onChange={(event) => void handleNewPackagePhotosChange(event)}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
                 <button className="admin-primary-button" type="submit" disabled={busy === "create-package"}>
                   {busy === "create-package" ? "ADDING…" : "ADD PACKAGE"}
                 </button>
@@ -1053,11 +1309,89 @@ on conflict (user_id) do nothing;`}</code></pre>
             <div className="admin-package-list">
               {telegramPackages.map((photoPackage, index) => {
                 const draft = packageDrafts[photoPackage.id] ?? photoPackage;
+                const pkgPhotos = photoPackage.photos && photoPackage.photos.length > 0
+                  ? photoPackage.photos
+                  : photoPackage.image_url
+                  ? [{ id: "photo-0", image_url: photoPackage.image_url }]
+                  : [];
                 return (
                   <article className="admin-package-card" key={photoPackage.id}>
                     <div className="admin-story-heading">
                       <span className="section-index">PACKAGE {String(index + 1).padStart(2, "0")}</span>
                     </div>
+
+                    <div className="admin-package-photo-section">
+                      <div className="admin-package-photo-header">
+                        <span className="admin-field-hint">PACKAGE PHOTOS (OPTIONAL)</span>
+                        {pkgPhotos.length > 0 && (
+                          <span className="admin-field-hint">
+                            {pkgPhotos.length} photo{pkgPhotos.length > 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
+                      {pkgPhotos.length > 0 ? (
+                        <div className="admin-package-photo-grid">
+                          {pkgPhotos.map((photo, pIdx) => (
+                            <div className="admin-package-photo-grid-item" key={photo.id || pIdx}>
+                              <div className="admin-package-photo-thumb-wrap">
+                                <img
+                                  src={toProxiedImageUrl(photo.image_url) ?? photo.image_url}
+                                  alt={`${photoPackage.title} photo ${pIdx + 1}`}
+                                  className="admin-package-photo-thumb"
+                                />
+                              </div>
+                              <div className="admin-package-photo-item-actions">
+                                <button
+                                  type="button"
+                                  className="admin-secondary-button admin-package-photo-sm-btn"
+                                  onClick={() => void handleEditPackagePhotoModal(photoPackage, photo)}
+                                  disabled={busy === `package-photo:${photoPackage.id}`}
+                                  title="Edit photo"
+                                >
+                                  ✂ Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="admin-story-delete-button admin-package-photo-sm-btn"
+                                  onClick={() => handleRemovePackagePhoto(photoPackage, photo.id)}
+                                  disabled={busy === `package-photo:${photoPackage.id}`}
+                                  title="Remove photo"
+                                >
+                                  ✕ Remove
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                          <label className="admin-package-photo-add-card">
+                            <span className="admin-package-photo-add-icon">＋</span>
+                            <span className="admin-package-photo-add-text">
+                              {busy === `package-photo:${photoPackage.id}` ? "Uploading…" : "Add photo"}
+                            </span>
+                            <input
+                              type="file"
+                              multiple
+                              accept="image/*,.heic,.heif"
+                              disabled={busy === `package-photo:${photoPackage.id}`}
+                              onChange={(event) => void handlePackagePhotosUpload(photoPackage, event)}
+                            />
+                          </label>
+                        </div>
+                      ) : (
+                        <div className="admin-package-photo-empty-box">
+                          <label className="admin-upload-button admin-package-photo-upload-trigger">
+                            <span>{busy === `package-photo:${photoPackage.id}` ? "UPLOADING PHOTO…" : "＋ ADD PACKAGE PHOTOS"}</span>
+                            <input
+                              type="file"
+                              multiple
+                              accept="image/*,.heic,.heif"
+                              disabled={busy === `package-photo:${photoPackage.id}`}
+                              onChange={(event) => void handlePackagePhotosUpload(photoPackage, event)}
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="admin-package-fields">
                       <label>
                         Package name
@@ -1219,7 +1553,7 @@ on conflict (user_id) do nothing;`}</code></pre>
                         <div className="admin-photo-preview-wrap">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={photo.image_url}
+                            src={toProxiedImageUrl(photo.image_url) ?? photo.image_url}
                             alt={`${story.title}, photo ${photoIndex + 1}`}
                           />
                           {photoIndex === 0 && (
@@ -1508,10 +1842,14 @@ on conflict (user_id) do nothing;`}</code></pre>
               ? "Edit Hero Background"
               : editorTarget.purpose === "set-cover"
               ? `Edit Cover Photo for "${editorTarget.story.title}"`
+              : editorTarget.purpose === "package-photo"
+              ? `Edit Photo for "${editorTarget.photoPackage.title}"`
+              : editorTarget.purpose === "new-package-photo"
+              ? "Edit Package Photo"
               : `Edit Photos for "${editorTarget.story.title}"`
           }
           onCancel={() => setEditorTarget(null)}
-          onComplete={(editedFiles) => {
+          onComplete={async (editedFiles) => {
             const target = editorTarget;
             setEditorTarget(null);
             if (target.purpose === "hero-background") {
@@ -1522,6 +1860,26 @@ on conflict (user_id) do nothing;`}</code></pre>
             } else if (target.purpose === "set-cover") {
               const file = editedFiles[0];
               if (file) void saveEditedCover(target.story, file, target.replacePhotoId);
+            } else if (target.purpose === "package-photo") {
+              if (target.replacePhotoId && editedFiles[0]) {
+                void savePackagePhoto(target.photoPackage, editedFiles[0], target.replacePhotoId);
+              } else if (editedFiles.length > 0) {
+                for (const file of editedFiles) {
+                  await savePackagePhoto(target.photoPackage, file);
+                }
+              }
+            } else if (target.purpose === "new-package-photo") {
+              if (target.editIndex !== undefined && editedFiles[0]) {
+                const idx = target.editIndex;
+                const newF = editedFiles[0];
+                setNewPackagePhotos((prev) => {
+                  const next = [...prev];
+                  next[idx] = newF;
+                  return next;
+                });
+              } else if (editedFiles.length > 0) {
+                setNewPackagePhotos((prev) => [...prev, ...editedFiles]);
+              }
             }
           }}
         />

@@ -1,7 +1,11 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Bot, InlineKeyboard, webhookCallback, type Context } from "grammy";
 import { rateLimitRequest } from "@/lib/rate-limit";
-import { getTelegramPackages, type TelegramPackage } from "@/lib/telegram-packages";
+import {
+  getTelegramPackages,
+  cleanPackageDetails,
+  type TelegramPackage,
+} from "@/lib/telegram-packages";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,18 +98,69 @@ function getWebhookHandler(webhookSecret: string) {
       return;
     }
 
-    const text = `✨ ${photoPackage.title} package — ${photoPackage.price}\n\n${photoPackage.details}`;
+    const cleanDetails = cleanPackageDetails(photoPackage.details);
+    const text = cleanDetails
+      ? `✨ ${photoPackage.title} package — ${photoPackage.price}\n\n${cleanDetails}`
+      : `✨ ${photoPackage.title} package — ${photoPackage.price}`;
+
+    // Telegram media captions are limited to 1024 characters
+    const caption = text.length <= 1024 ? text : text.slice(0, 1020) + "…";
+
     const prefill = encodeURIComponent(`Hi! I'm interested in the ${photoPackage.title} package.`);
+    const replyMarkup = new InlineKeyboard()
+      .url("💬 Message the photographer", `${photographerUrl}?text=${prefill}`)
+      .row()
+      .text("⬅️ Back to packages", "back");
+
+    const photos = photoPackage.photos && photoPackage.photos.length > 0
+      ? photoPackage.photos
+      : photoPackage.image_url
+      ? [{ id: "photo-0", image_url: photoPackage.image_url }]
+      : [];
+
+    const fullImageUrls: string[] = [];
+    for (const p of photos) {
+      if (p.image_url.startsWith("http://") || p.image_url.startsWith("https://")) {
+        fullImageUrls.push(p.image_url);
+      } else if (process.env.NEXT_PUBLIC_SUPABASE_URL) {
+        fullImageUrls.push(new URL(p.image_url, process.env.NEXT_PUBLIC_SUPABASE_URL).toString());
+      }
+    }
+
     try {
-      await ctx.editMessageText(text, {
-        reply_markup: new InlineKeyboard()
-          .url("💬 Message the photographer", `${photographerUrl}?text=${prefill}`)
-          .row()
-          .text("⬅️ Back to packages", "back"),
-      });
-    } catch (editError: unknown) {
-      if (editError instanceof Error && !editError.message.includes("message is not modified")) {
-        console.error("Failed to edit message in callback:", editError);
+      if (fullImageUrls.length > 1) {
+        await ctx.deleteMessage().catch(() => {});
+        const mediaGroup = fullImageUrls.slice(0, 10).map((url, idx) => ({
+          type: "photo" as const,
+          media: url,
+          caption: idx === 0 ? caption : undefined,
+        }));
+        await ctx.replyWithMediaGroup(mediaGroup);
+        await ctx.reply("💬 Tap below to contact or return to packages:", {
+          reply_markup: replyMarkup,
+          link_preview_options: { is_disabled: true },
+        });
+      } else if (fullImageUrls.length === 1) {
+        await ctx.deleteMessage().catch(() => {});
+        await ctx.replyWithPhoto(fullImageUrls[0], {
+          caption,
+          reply_markup: replyMarkup,
+        });
+      } else {
+        await ctx.editMessageText(text, {
+          reply_markup: replyMarkup,
+          link_preview_options: { is_disabled: true },
+        });
+      }
+    } catch (sendError: unknown) {
+      console.error("Failed to send package media in callback:", sendError);
+      try {
+        await ctx.reply(text, {
+          reply_markup: replyMarkup,
+          link_preview_options: { is_disabled: true },
+        });
+      } catch (fallbackError) {
+        console.error("Failed to send package message in callback:", fallbackError);
       }
     }
 
@@ -133,14 +188,13 @@ function getWebhookHandler(webhookSecret: string) {
     await ctx.answerCallbackQuery().catch(() => {});
     try {
       const packages = await getTelegramPackages();
-      await ctx.editMessageText(
+      await ctx.deleteMessage().catch(() => {});
+      await ctx.reply(
         packages.length ? MENU_TEXT : "There are no photo shoot packages available right now.",
         { reply_markup: menuKeyboard(packages) },
       );
     } catch (editError: unknown) {
-      if (editError instanceof Error && !editError.message.includes("message is not modified")) {
-        console.error("Failed to return to packages menu:", editError);
-      }
+      console.error("Failed to return to packages menu:", editError);
     }
   });
 

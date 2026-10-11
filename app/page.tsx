@@ -2,7 +2,7 @@ import ThemeToggle from "./theme-toggle";
 import ProjectGallery from "./project-gallery";
 import ScrollReveal from "./scroll-reveal";
 import { DEFAULT_HERO_BACKGROUND, getFeaturedStories, getHeroBackground, getPortfolioYears } from "@/lib/portfolio";
-import { ArrowUpRightIcon, ArrowDownRightIcon, ArrowDownIcon } from "./icons";
+import { ArrowUpRightIcon, ArrowDownRightIcon, ArrowDownIcon, TelegramIcon } from "./icons";
 
 export const dynamic = "force-dynamic";
 
@@ -102,8 +102,11 @@ export default async function Home() {
           <h2 data-reveal>Let&apos;s make something<br /><em>you can feel.</em></h2>
           <p data-reveal>Tell me what you&apos;re dreaming up. I&apos;d love to hear about it.</p>
           <a className="contact-button" href={telegramUrl} data-reveal>
-            CONTACT TO TELEGRAM
-            <ArrowUpRightIcon size={12} />
+            <span className="contact-button-spacer" aria-hidden="true" />
+            <span className="contact-button-text">CONTACT TO TELEGRAM</span>
+            <span className="contact-button-icon" aria-hidden="true">
+              <TelegramIcon size={20} />
+            </span>
           </a>
         </div>
       </section>

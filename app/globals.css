@@ -21,8 +21,8 @@
 @theme inline {
   --color-background: var(--paper);
   --color-foreground: var(--ink);
-  --font-sans: Arial, Helvetica, sans-serif;
-  --font-serif: Georgia, "Times New Roman", serif;
+  --font-sans: "Noto Sans Myanmar", "Pyidaungsu", "Padauk", "Myanmar Text", Arial, Helvetica, sans-serif;
+  --font-serif: "Noto Serif Myanmar", "Pyidaungsu", "Padauk", "Myanmar Text", Georgia, "Times New Roman", serif;
 }
 
 * {
@@ -43,7 +43,7 @@ body {
   overflow-x: hidden;
   background: var(--paper);
   color: var(--ink);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   transition: background-color 220ms ease, color 220ms ease;
 }
@@ -935,14 +935,17 @@ a:focus-visible {
 
 .contact-button {
   display: inline-flex;
-  min-height: 48px;
+  min-height: 52px;
   align-items: center;
+  justify-content: center;
   gap: 12px;
-  padding: 0 24px;
+  padding: 0 32px;
   background: var(--ink);
   color: var(--paper);
-  font-size: 8px;
-  letter-spacing: 1.2px;
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  text-align: center;
   transition: background 160ms ease, transform 160ms ease;
 }
 
@@ -950,9 +953,39 @@ a:focus-visible {
   background: #504b43;
 }
 
-.contact-button span {
-  color: #d1b99c;
-  font-size: 15px;
+.contact-button-spacer {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.contact-button-text {
+  display: inline-block;
+  text-align: center;
+  color: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  white-space: nowrap;
+}
+
+.contact-button-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  line-height: 1;
+}
+
+.contact-button-icon svg,
+.contact-button svg {
+  flex-shrink: 0;
+  display: block;
+  color: inherit;
 }
 
 .site-footer {
@@ -1020,6 +1053,23 @@ a:focus-visible {
   justify-content: space-between;
   padding: 0 5.4%;
   border-bottom: 1px solid var(--line);
+}
+
+.admin-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.admin-topbar .theme-toggle {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.admin-topbar .theme-toggle:hover {
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .admin-brand,
@@ -3545,10 +3595,23 @@ a:focus-visible {
   }
 
   .contact-button {
-    min-height: 42px;
-    padding: 0 16px;
-    font-size: 7px;
+    min-height: 46px;
+    padding: 0 20px;
+    font-size: 7.5px;
     gap: 10px;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .contact-button-spacer,
+  .contact-button-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .contact-button-icon svg {
+    width: 18px;
+    height: 18px;
   }
 
   .admin-topbar {
@@ -3627,5 +3690,264 @@ a:focus-visible {
 
   :root[data-scroll-reveal="enabled"] [data-reveal]:not(.is-visible) {
     transform: translate3d(0, 8px, 0);
+  }
+}
+
+/* ==========================================================================
+   Myanmar Unicode Support & Typography
+   ========================================================================== */
+@font-face {
+  font-family: "MyanmarUnicodeFallback";
+  src: local("Pyidaungsu"), local("Padauk"), local("Myanmar Text"), local("Myanmar3");
+  unicode-range: U+1000-109F, U+A9E0-A9FE, U+AA60-AA7F;
+}
+
+:lang(my),
+[lang="my"],
+.myanmar-text,
+.mm-font {
+  font-family: "Noto Sans Myanmar", "Pyidaungsu", "Padauk", "Myanmar Text", sans-serif !important;
+  letter-spacing: normal !important;
+  line-height: 1.75 !important;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+input,
+textarea,
+select,
+button {
+  font-family: var(--font-sans);
+}
+
+.admin-package-fields textarea,
+.admin-package-fields input,
+.admin-package-details textarea,
+.project-card,
+.collection-title,
+.story-meta,
+.story-title,
+.admin-story-title {
+  word-break: break-word;
+}
+
+/* ==========================================================================
+   Admin Package Photo Section Styling
+   ========================================================================== */
+.admin-package-photo-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(125, 125, 125, 0.05);
+  border: 1px dashed var(--line);
+  margin-bottom: 18px;
+}
+
+.admin-package-photo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-field-hint {
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.admin-package-photo-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.admin-package-photo-thumb-wrap {
+  width: 140px;
+  height: 105px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.admin-package-photo-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.admin-package-photo-ctrls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-package-photo-btn {
+  font-size: 8.5px;
+  letter-spacing: 0.8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.admin-package-photo-file-label {
+  margin: 0;
+  cursor: pointer;
+}
+
+.admin-package-photo-file-label input[type="file"] {
+  display: none;
+}
+
+.admin-package-photo-empty-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.admin-package-photo-upload-trigger {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.admin-package-photo-upload-trigger:hover {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.admin-package-photo-upload-trigger input[type="file"] {
+  display: none;
+}
+
+.admin-package-photo-help {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.admin-package-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.admin-package-photo-grid-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 8px;
+  border-radius: 2px;
+}
+
+.admin-package-photo-grid-item .admin-package-photo-thumb-wrap {
+  width: 100%;
+  height: 95px;
+  border: none;
+}
+
+.admin-package-photo-item-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.admin-package-photo-sm-btn {
+  flex: 1;
+  font-size: 8px;
+  letter-spacing: 0.6px;
+  padding: 6px 4px;
+  text-align: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.admin-package-photo-add-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 133px;
+  border: 1px dashed var(--line);
+  border-radius: 2px;
+  cursor: pointer;
+  background: rgba(125, 125, 125, 0.03);
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.admin-package-photo-add-card:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: rgba(125, 125, 125, 0.08);
+}
+
+.admin-package-photo-add-card input[type="file"] {
+  display: none;
+}
+
+.admin-package-photo-add-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.admin-package-photo-add-text {
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .admin-package-photo-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .admin-package-photo-thumb-wrap {
+    width: 100%;
+    height: 160px;
+  }
+
+  .admin-package-photo-ctrls {
+    width: 100%;
+  }
+
+  .admin-package-photo-btn {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
+  .admin-package-photo-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
   }
 }
